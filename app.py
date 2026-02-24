@@ -7,6 +7,7 @@ import json
 import os
 from datetime import datetime
 import xml.etree.ElementTree as ET
+import numpy as np
 
 app = Flask(__name__)
 
@@ -17,7 +18,13 @@ COMPANY_NAMES = {
     'AMZN': 'Amazon', 'NVDA': 'Nvidia', 'META': 'Meta', 'TSLA': 'Tesla'
 }
 
+SECTOR_PEERS = {
+    'META': 'GOOGL', 'GOOGL': 'META', 'AAPL': 'MSFT', 'MSFT': 'AAPL',
+    'NVDA': 'AMD', 'AMZN': 'MSFT', 'TSLA': 'RIVN'
+}
+
 TRADES_FILE = 'trades.json'
+
 
 def get_news_sentiment(ticker):
     try:
@@ -48,13 +55,11 @@ def get_whale_signals(ticker):
     try:
         score = 0
         signals = []
-
         queries = [
             f'{ticker}+insider+buying+OR+selling',
             f'{ticker}+Goldman+Sachs+OR+Morgan+Stanley+upgrade+OR+downgrade',
             f'{ticker}+hindenburg+OR+short+seller'
         ]
-
         for query in queries:
             try:
                 url = f'https://news.google.com/rss/search?q={query}&hl=en-US&gl=US&ceid=US:en'
@@ -65,7 +70,6 @@ def get_whale_signals(ticker):
                     title_lower = title.lower()
                     pub_date = item.find('pubDate').text or ''
                     multiplier = 1.5 if 'pm' in pub_date.lower() else 1.0
-
                     if any(w in title_lower for w in ['insider buy', 'purchased', 'acquired']):
                         pts = round(3 * multiplier, 1)
                         score += pts
@@ -88,7 +92,6 @@ def get_whale_signals(ticker):
                         signals.append({'signal': '⚠️ SHORT SELLER', 'detail': title[:80], 'points': pts})
             except:
                 continue
-
         try:
             stock = yf.Ticker(ticker)
             hist = stock.history(period='20d', interval='1d')
@@ -108,10 +111,109 @@ def get_whale_signals(ticker):
                         signals.append({'signal': '📊 Volumen VENTA anormal', 'detail': f'Volumen {ratio:.1f}x la media', 'points': -1})
         except:
             pass
-
         return round(score, 1), signals
     except:
         return 0, []
+
+
+def get_overnight_drift(ticker):
+    """Calcula el rendimiento medio overnight de los últimos 20 días"""
+    try:
+        stock = yf.Ticker(ticker)
+        hist = stock.history(period='30d', interval='1d')
+        if len(hist) < 5:
+            return 0, 'neutral'
+        overnight_returns = []
+        for i in range(1, len(hist)):
+            prev_close = hist['Close'].iloc[i-1]
+            curr_open = hist['Open'].iloc[i]
+            if prev_close > 0:
+                overnight_ret = (curr_open - prev_close) / prev_close * 100
+                overnight_returns.append(overnight_ret)
+        if not overnight_returns:
+            return 0, 'neutral'
+        avg_drift = round(sum(overnight_returns) / len(overnight_returns), 3)
+        recent_drift = round(sum(overnight_returns[-5:]) / 5, 3)
+        if avg_drift > 0.1:
+            trend = 'alcista'
+        elif avg_drift < -0.1:
+            trend = 'bajista'
+        else:
+            trend = 'neutral'
+        return avg_drift, trend, recent_drift
+    except:
+        return 0, 'neutral', 0
+
+
+def get_gap_room(ticker):
+    """Calcula el espacio hasta la resistencia/soporte más cercano"""
+    try:
+        stock = yf.Ticker(ticker)
+        hist = stock.history(period='1y', interval='1d')
+        if len(hist) < 20:
+            return {'room_up': 0, 'room_down': 0, 'near_resistance': False}
+        current = hist['Close'].iloc[-1]
+        high_52w = hist['High'].max()
+        low_52w = hist['Low'].min()
+        high_3m = hist['High'].tail(60).max()
+        low_3m = hist['Low'].tail(60).min()
+        resistance = min(high_52w, high_3m * 1.02)
+        support = max(low_52w, low_3m * 0.98)
+        room_up = round((resistance - current) / current * 100, 2)
+        room_down = round((current - support) / current * 100, 2)
+        near_resistance = room_up < 1.5
+        near_support = room_down < 1.5
+        return {
+            'room_up': room_up,
+            'room_down': room_down,
+            'near_resistance': near_resistance,
+            'near_support': near_support,
+            'resistance': round(resistance, 2),
+            'support': round(support, 2),
+            'current': round(current, 2)
+        }
+    except:
+        return {'room_up': 5, 'room_down': 5, 'near_resistance': False, 'near_support': False}
+
+
+def get_sector_correlation(ticker):
+    """Compara con el par sectorial para confirmar señal"""
+    try:
+        peer = SECTOR_PEERS.get(ticker)
+        if not peer:
+            return 0, None
+        peer_stock = yf.Ticker(peer)
+        peer_hist = peer_stock.history(period='5d', interval='1d')
+        if len(peer_hist) < 2:
+            return 0, None
+        peer_change = (peer_hist['Close'].iloc[-1] - peer_hist['Close'].iloc[-2]) / peer_hist['Close'].iloc[-2] * 100
+        if peer_change > 0.5:
+            return 1, {'ticker': peer, 'change': round(peer_change, 2), 'signal': '🟢 Par sectorial ALCISTA'}
+        elif peer_change < -0.5:
+            return -1, {'ticker': peer, 'change': round(peer_change, 2), 'signal': '🔴 Par sectorial BAJISTA'}
+        return 0, {'ticker': peer, 'change': round(peer_change, 2), 'signal': '⚪ Par sectorial NEUTRAL'}
+    except:
+        return 0, None
+
+
+def get_futures_sentiment():
+    """Obtiene el sentimiento de futuros via Yahoo Finance (QQQ como proxy del NQ)"""
+    try:
+        qqq = yf.Ticker('QQQ')
+        hist = qqq.history(period='2d', interval='5m')
+        if len(hist) < 6:
+            return 0, 'neutral'
+        last_30min = hist.tail(6)
+        change_30m = (last_30min['Close'].iloc[-1] - last_30min['Close'].iloc[0]) / last_30min['Close'].iloc[0] * 100
+        change_30m = round(change_30m, 3)
+        if change_30m >= 0.3:
+            return 1, f'🟢 Nasdaq Futures +{change_30m}% (últimos 30min)'
+        elif change_30m <= -0.3:
+            return -1, f'🔴 Nasdaq Futures {change_30m}% (últimos 30min)'
+        else:
+            return 0, f'⚪ Nasdaq Futures {change_30m}% (últimos 30min)'
+    except:
+        return 0, 'Sin datos de futuros'
 
 
 def get_macro_sentiment():
@@ -226,6 +328,10 @@ def calculate_gap_probability(ticker):
     news_sentiment, news_list = get_news_sentiment(ticker)
     macro_sentiment, macro_news = get_macro_sentiment()
     whale_score, whale_signals = get_whale_signals(ticker)
+    overnight_drift, drift_trend, recent_drift = get_overnight_drift(ticker)
+    gap_room = get_gap_room(ticker)
+    sector_score, sector_info = get_sector_correlation(ticker)
+    futures_score, futures_signal = get_futures_sentiment()
 
     final_prob = hist_prob + (tech_score * 0.3) + (news_sentiment * 15) + (macro_sentiment * 10)
 
@@ -234,7 +340,24 @@ def calculate_gap_probability(ticker):
     elif earnings_info['days_to_earnings'] <= 7:
         final_prob += 5
 
+    # Señales de ballenas
     final_prob += whale_score * 5
+
+    # Overnight drift
+    if overnight_drift > 0.1:
+        final_prob += 5
+    elif overnight_drift < -0.1:
+        final_prob -= 5
+
+    # Correlación sectorial
+    final_prob += sector_score * 8
+
+    # Futuros
+    final_prob += futures_score * 10
+
+    # Gap room - si está cerca de resistencia bajamos probabilidad alcista
+    if gap_room['near_resistance'] and final_prob >= 50:
+        final_prob -= 8
 
     final_prob = max(15, min(85, final_prob))
     direction = "ALCISTA" if final_prob >= 50 else "BAJISTA"
@@ -251,7 +374,13 @@ def calculate_gap_probability(ticker):
         'news': news_list[:5],
         'macro_news': macro_news[:4],
         'whale_signals': whale_signals,
-        'whale_score': whale_score
+        'whale_score': whale_score,
+        'overnight_drift': overnight_drift,
+        'drift_trend': drift_trend,
+        'recent_drift': recent_drift,
+        'gap_room': gap_room,
+        'sector_info': sector_info,
+        'futures_signal': futures_signal
     }
 
 
