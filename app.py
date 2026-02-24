@@ -39,11 +39,7 @@ def get_news_sentiment(ticker):
             date = pub_date.text[:16] if pub_date is not None else ''
             sentiment = TextBlob(title).sentiment.polarity
             sentiments.append(sentiment)
-            news_list.append({
-                'title': title[:80],
-                'sentiment': round(sentiment, 2),
-                'published': date
-            })
+            news_list.append({'title': title[:80], 'sentiment': round(sentiment, 2), 'published': date})
         avg_sentiment = sum(sentiments) / len(sentiments) if sentiments else 0
         return round(avg_sentiment, 3), news_list
     except:
@@ -148,12 +144,12 @@ def get_gap_room(ticker):
         stock = yf.Ticker(ticker)
         hist = stock.history(period='1y', interval='1d')
         if len(hist) < 20:
-            return {'room_up': 5, 'room_down': 5, 'near_resistance': False, 'near_support': False}
-        current = hist['Close'].iloc[-1]
-        high_52w = hist['High'].max()
-        low_52w = hist['Low'].min()
-        high_3m = hist['High'].tail(60).max()
-        low_3m = hist['Low'].tail(60).min()
+            return {'room_up': 5, 'room_down': 5, 'near_resistance': False, 'near_support': False, 'resistance': 0, 'support': 0, 'current': 0}
+        current = float(hist['Close'].iloc[-1])
+        high_52w = float(hist['High'].max())
+        low_52w = float(hist['Low'].min())
+        high_3m = float(hist['High'].tail(60).max())
+        low_3m = float(hist['Low'].tail(60).min())
         resistance = min(high_52w, high_3m * 1.02)
         support = max(low_52w, low_3m * 0.98)
         room_up = round((resistance - current) / current * 100, 2)
@@ -161,14 +157,14 @@ def get_gap_room(ticker):
         return {
             'room_up': room_up,
             'room_down': room_down,
-            'near_resistance': room_up < 1.5,
-            'near_support': room_down < 1.5,
+            'near_resistance': bool(room_up < 1.5),
+            'near_support': bool(room_down < 1.5),
             'resistance': round(resistance, 2),
             'support': round(support, 2),
             'current': round(current, 2)
         }
     except:
-        return {'room_up': 5, 'room_down': 5, 'near_resistance': False, 'near_support': False}
+        return {'room_up': 5, 'room_down': 5, 'near_resistance': False, 'near_support': False, 'resistance': 0, 'support': 0, 'current': 0}
 
 
 def get_sector_correlation(ticker):
@@ -181,11 +177,12 @@ def get_sector_correlation(ticker):
         if len(peer_hist) < 2:
             return 0, None
         peer_change = (peer_hist['Close'].iloc[-1] - peer_hist['Close'].iloc[-2]) / peer_hist['Close'].iloc[-2] * 100
+        peer_change = round(float(peer_change), 2)
         if peer_change > 0.5:
-            return 1, {'ticker': peer, 'change': round(peer_change, 2), 'signal': '🟢 Par sectorial ALCISTA'}
+            return 1, {'ticker': peer, 'change': peer_change, 'signal': '🟢 Par sectorial ALCISTA'}
         elif peer_change < -0.5:
-            return -1, {'ticker': peer, 'change': round(peer_change, 2), 'signal': '🔴 Par sectorial BAJISTA'}
-        return 0, {'ticker': peer, 'change': round(peer_change, 2), 'signal': '⚪ Par sectorial NEUTRAL'}
+            return -1, {'ticker': peer, 'change': peer_change, 'signal': '🔴 Par sectorial BAJISTA'}
+        return 0, {'ticker': peer, 'change': peer_change, 'signal': '⚪ Par sectorial NEUTRAL'}
     except:
         return 0, None
 
@@ -198,7 +195,7 @@ def get_futures_sentiment():
             return 0, 'Sin datos de futuros'
         last_30min = hist.tail(6)
         change_30m = (last_30min['Close'].iloc[-1] - last_30min['Close'].iloc[0]) / last_30min['Close'].iloc[0] * 100
-        change_30m = round(change_30m, 3)
+        change_30m = round(float(change_30m), 3)
         if change_30m >= 0.3:
             return 1, f'🟢 Nasdaq +{change_30m}% ultimos 30min'
         elif change_30m <= -0.3:
@@ -231,11 +228,7 @@ def get_macro_sentiment():
                     date = pub_date.text[:16] if pub_date is not None else ''
                     sentiment = TextBlob(title).sentiment.polarity
                     all_sentiments.append(sentiment)
-                    all_news.append({
-                        'title': title[:80],
-                        'sentiment': round(sentiment, 2),
-                        'published': date
-                    })
+                    all_news.append({'title': title[:80], 'sentiment': round(sentiment, 2), 'published': date})
             except:
                 continue
         avg = sum(all_sentiments) / len(all_sentiments) if all_sentiments else 0
@@ -291,7 +284,7 @@ def get_technical_score(ticker):
             score -= 10
         if rsi < 30:
             score += 20
-        return score
+        return int(score)
     except:
         return 0
 
@@ -304,71 +297,88 @@ def get_earnings_info(ticker):
             earnings_date = calendar.iloc[0]['Earnings Date'] if 'Earnings Date' in calendar.columns else None
             if earnings_date:
                 days_to_earnings = (pd.Timestamp(earnings_date) - pd.Timestamp.now()).days
-                return {
-                    'has_earnings': True,
-                    'days_to_earnings': days_to_earnings,
-                    'earnings_date': str(earnings_date)[:10]
-                }
+                return {'has_earnings': True, 'days_to_earnings': int(days_to_earnings), 'earnings_date': str(earnings_date)[:10]}
     except:
         pass
     return {'has_earnings': False, 'days_to_earnings': 999, 'earnings_date': None}
 
 
 def calculate_gap_probability(ticker):
-    hist_prob = get_historical_gap_stats(ticker)
-    tech_score = get_technical_score(ticker)
-    earnings_info = get_earnings_info(ticker)
-    news_sentiment, news_list = get_news_sentiment(ticker)
-    macro_sentiment, macro_news = get_macro_sentiment()
-    whale_score, whale_signals = get_whale_signals(ticker)
-    overnight_drift, drift_trend, recent_drift = get_overnight_drift(ticker)
-    gap_room = get_gap_room(ticker)
-    sector_score, sector_info = get_sector_correlation(ticker)
-    futures_score, futures_signal = get_futures_sentiment()
+    try:
+        hist_prob = get_historical_gap_stats(ticker)
+        tech_score = get_technical_score(ticker)
+        earnings_info = get_earnings_info(ticker)
+        news_sentiment, news_list = get_news_sentiment(ticker)
+        macro_sentiment, macro_news = get_macro_sentiment()
+        whale_score, whale_signals = get_whale_signals(ticker)
+        overnight_drift, drift_trend, recent_drift = get_overnight_drift(ticker)
+        gap_room = get_gap_room(ticker)
+        sector_score, sector_info = get_sector_correlation(ticker)
+        futures_score, futures_signal = get_futures_sentiment()
 
-    final_prob = hist_prob + (tech_score * 0.3) + (news_sentiment * 15) + (macro_sentiment * 10)
+        final_prob = hist_prob + (tech_score * 0.3) + (news_sentiment * 15) + (macro_sentiment * 10)
 
-    if earnings_info['days_to_earnings'] <= 1:
-        final_prob += 10
-    elif earnings_info['days_to_earnings'] <= 7:
-        final_prob += 5
+        if earnings_info['days_to_earnings'] <= 1:
+            final_prob += 10
+        elif earnings_info['days_to_earnings'] <= 7:
+            final_prob += 5
 
-    final_prob += whale_score * 5
+        final_prob += whale_score * 5
 
-    if overnight_drift > 0.1:
-        final_prob += 5
-    elif overnight_drift < -0.1:
-        final_prob -= 5
+        if overnight_drift > 0.1:
+            final_prob += 5
+        elif overnight_drift < -0.1:
+            final_prob -= 5
 
-    final_prob += sector_score * 8
-    final_prob += futures_score * 10
+        final_prob += sector_score * 8
+        final_prob += futures_score * 10
 
-    if gap_room.get('near_resistance') and final_prob >= 50:
-        final_prob -= 8
+        if gap_room.get('near_resistance') and final_prob >= 50:
+            final_prob -= 8
 
-    final_prob = max(15, min(85, final_prob))
-    direction = "ALCISTA" if final_prob >= 50 else "BAJISTA"
-    display_prob = final_prob if final_prob >= 50 else 100 - final_prob
+        final_prob = max(15, min(85, final_prob))
+        direction = "ALCISTA" if final_prob >= 50 else "BAJISTA"
+        display_prob = final_prob if final_prob >= 50 else 100 - final_prob
 
-    return {
-        'ticker': ticker,
-        'probability': round(display_prob),
-        'direction': direction,
-        'earnings': earnings_info,
-        'tech_score': tech_score,
-        'news_sentiment': news_sentiment,
-        'macro_sentiment': macro_sentiment,
-        'news': news_list[:5],
-        'macro_news': macro_news[:4],
-        'whale_signals': whale_signals,
-        'whale_score': whale_score,
-        'overnight_drift': overnight_drift,
-        'drift_trend': drift_trend,
-        'recent_drift': recent_drift,
-        'gap_room': gap_room,
-        'sector_info': sector_info,
-        'futures_signal': futures_signal
-    }
+        return {
+            'ticker': ticker,
+            'probability': round(display_prob),
+            'direction': direction,
+            'earnings': earnings_info,
+            'tech_score': tech_score,
+            'news_sentiment': float(news_sentiment),
+            'macro_sentiment': float(macro_sentiment),
+            'news': news_list[:5],
+            'macro_news': macro_news[:4],
+            'whale_signals': whale_signals,
+            'whale_score': float(whale_score),
+            'overnight_drift': float(overnight_drift),
+            'drift_trend': drift_trend,
+            'recent_drift': float(recent_drift),
+            'gap_room': gap_room,
+            'sector_info': sector_info,
+            'futures_signal': futures_signal
+        }
+    except Exception as e:
+        return {
+            'ticker': ticker,
+            'probability': 50,
+            'direction': 'NEUTRAL',
+            'earnings': {'has_earnings': False, 'days_to_earnings': 999, 'earnings_date': None},
+            'tech_score': 0,
+            'news_sentiment': 0,
+            'macro_sentiment': 0,
+            'news': [],
+            'macro_news': [],
+            'whale_signals': [],
+            'whale_score': 0,
+            'overnight_drift': 0,
+            'drift_trend': 'neutral',
+            'recent_drift': 0,
+            'gap_room': {'room_up': 5, 'room_down': 5, 'near_resistance': False, 'near_support': False},
+            'sector_info': None,
+            'futures_signal': 'Sin datos'
+        }
 
 
 def load_trades():
