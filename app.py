@@ -7,7 +7,6 @@ import json
 import os
 from datetime import datetime
 import xml.etree.ElementTree as ET
-import numpy as np
 
 app = Flask(__name__)
 
@@ -117,12 +116,11 @@ def get_whale_signals(ticker):
 
 
 def get_overnight_drift(ticker):
-    """Calcula el rendimiento medio overnight de los últimos 20 días"""
     try:
         stock = yf.Ticker(ticker)
         hist = stock.history(period='30d', interval='1d')
         if len(hist) < 5:
-            return 0, 'neutral'
+            return 0, 'neutral', 0
         overnight_returns = []
         for i in range(1, len(hist)):
             prev_close = hist['Close'].iloc[i-1]
@@ -131,7 +129,7 @@ def get_overnight_drift(ticker):
                 overnight_ret = (curr_open - prev_close) / prev_close * 100
                 overnight_returns.append(overnight_ret)
         if not overnight_returns:
-            return 0, 'neutral'
+            return 0, 'neutral', 0
         avg_drift = round(sum(overnight_returns) / len(overnight_returns), 3)
         recent_drift = round(sum(overnight_returns[-5:]) / 5, 3)
         if avg_drift > 0.1:
@@ -146,12 +144,11 @@ def get_overnight_drift(ticker):
 
 
 def get_gap_room(ticker):
-    """Calcula el espacio hasta la resistencia/soporte más cercano"""
     try:
         stock = yf.Ticker(ticker)
         hist = stock.history(period='1y', interval='1d')
         if len(hist) < 20:
-            return {'room_up': 0, 'room_down': 0, 'near_resistance': False}
+            return {'room_up': 5, 'room_down': 5, 'near_resistance': False, 'near_support': False}
         current = hist['Close'].iloc[-1]
         high_52w = hist['High'].max()
         low_52w = hist['Low'].min()
@@ -161,13 +158,11 @@ def get_gap_room(ticker):
         support = max(low_52w, low_3m * 0.98)
         room_up = round((resistance - current) / current * 100, 2)
         room_down = round((current - support) / current * 100, 2)
-        near_resistance = room_up < 1.5
-        near_support = room_down < 1.5
         return {
             'room_up': room_up,
             'room_down': room_down,
-            'near_resistance': near_resistance,
-            'near_support': near_support,
+            'near_resistance': room_up < 1.5,
+            'near_support': room_down < 1.5,
             'resistance': round(resistance, 2),
             'support': round(support, 2),
             'current': round(current, 2)
@@ -177,7 +172,6 @@ def get_gap_room(ticker):
 
 
 def get_sector_correlation(ticker):
-    """Compara con el par sectorial para confirmar señal"""
     try:
         peer = SECTOR_PEERS.get(ticker)
         if not peer:
@@ -197,21 +191,20 @@ def get_sector_correlation(ticker):
 
 
 def get_futures_sentiment():
-    """Obtiene el sentimiento de futuros via Yahoo Finance (QQQ como proxy del NQ)"""
     try:
         qqq = yf.Ticker('QQQ')
         hist = qqq.history(period='2d', interval='5m')
         if len(hist) < 6:
-            return 0, 'neutral'
+            return 0, 'Sin datos de futuros'
         last_30min = hist.tail(6)
         change_30m = (last_30min['Close'].iloc[-1] - last_30min['Close'].iloc[0]) / last_30min['Close'].iloc[0] * 100
         change_30m = round(change_30m, 3)
         if change_30m >= 0.3:
-            return 1, f'🟢 Nasdaq Futures +{change_30m}% (últimos 30min)'
+            return 1, f'🟢 Nasdaq +{change_30m}% ultimos 30min'
         elif change_30m <= -0.3:
-            return -1, f'🔴 Nasdaq Futures {change_30m}% (últimos 30min)'
+            return -1, f'🔴 Nasdaq {change_30m}% ultimos 30min'
         else:
-            return 0, f'⚪ Nasdaq Futures {change_30m}% (últimos 30min)'
+            return 0, f'⚪ Nasdaq {change_30m}% ultimos 30min'
     except:
         return 0, 'Sin datos de futuros'
 
@@ -340,23 +333,17 @@ def calculate_gap_probability(ticker):
     elif earnings_info['days_to_earnings'] <= 7:
         final_prob += 5
 
-    # Señales de ballenas
     final_prob += whale_score * 5
 
-    # Overnight drift
     if overnight_drift > 0.1:
         final_prob += 5
     elif overnight_drift < -0.1:
         final_prob -= 5
 
-    # Correlación sectorial
     final_prob += sector_score * 8
-
-    # Futuros
     final_prob += futures_score * 10
 
-    # Gap room - si está cerca de resistencia bajamos probabilidad alcista
-    if gap_room['near_resistance'] and final_prob >= 50:
+    if gap_room.get('near_resistance') and final_prob >= 50:
         final_prob -= 8
 
     final_prob = max(15, min(85, final_prob))
