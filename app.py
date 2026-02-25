@@ -22,6 +22,11 @@ SECTOR_PEERS = {
     'NVDA': 'AMD', 'AMZN': 'MSFT', 'TSLA': 'RIVN'
 }
 
+STOCKTWITS_MAP = {
+    'AAPL': 'AAPL', 'MSFT': 'MSFT', 'GOOGL': 'GOOGL', 'AMZN': 'AMZN',
+    'NVDA': 'NVDA', 'META': 'META', 'TSLA': 'TSLA'
+}
+
 TRADES_FILE = 'trades.json'
 
 
@@ -44,6 +49,179 @@ def get_news_sentiment(ticker):
         return round(avg_sentiment, 3), news_list
     except:
         return 0, []
+
+
+def get_stocktwits_sentiment(ticker):
+    """Sentimiento social de StockTwits - API gratuita"""
+    try:
+        url = f'https://api.stocktwits.com/api/2/streams/symbol/{ticker}.json'
+        response = requests.get(url, timeout=8)
+        if response.status_code != 200:
+            return 0, 'Sin datos', 0, 0
+        data = response.json()
+        messages = data.get('messages', [])
+        if not messages:
+            return 0, 'Sin datos', 0, 0
+        bullish = 0
+        bearish = 0
+        sentiments = []
+        for msg in messages[:30]:
+            entities = msg.get('entities', {})
+            sentiment_data = entities.get('sentiment', {})
+            if sentiment_data:
+                if sentiment_data.get('basic') == 'Bullish':
+                    bullish += 1
+                elif sentiment_data.get('basic') == 'Bearish':
+                    bearish += 1
+            body = msg.get('body', '')
+            if body:
+                blob = TextBlob(body)
+                sentiments.append(blob.sentiment.polarity)
+        total = bullish + bearish
+        bull_pct = round((bullish / total) * 100) if total > 0 else 50
+        avg_sent = round(sum(sentiments) / len(sentiments), 3) if sentiments else 0
+        if bull_pct >= 65:
+            trend = '🟢 Muy alcista'
+            score = 1
+        elif bull_pct >= 55:
+            trend = '🟡 Ligeramente alcista'
+            score = 0.5
+        elif bull_pct <= 35:
+            trend = '🔴 Muy bajista'
+            score = -1
+        elif bull_pct <= 45:
+            trend = '🟠 Ligeramente bajista'
+            score = -0.5
+        else:
+            trend = '⚪ Neutral'
+            score = 0
+        return score, trend, bull_pct, len(messages)
+    except:
+        return 0, 'Sin datos StockTwits', 50, 0
+
+
+def get_fakeout_detector(ticker, rsi_score):
+    """Detecta posibles fakeouts: sentimiento eufórico + RSI sobrecomprado"""
+    try:
+        stock = yf.Ticker(ticker)
+        hist = stock.history(period='3mo')
+        if hist.empty:
+            return False, 'Sin datos', 0
+        close = hist['Close']
+        delta = close.diff()
+        gain = delta.where(delta > 0, 0).rolling(14).mean()
+        loss = -delta.where(delta < 0, 0).rolling(14).mean()
+        rs = gain / loss
+        rsi = float(100 - (100 / (1 + rs.iloc[-1])))
+        fakeout_risk = 0
+        reasons = []
+        if rsi > 72:
+            fakeout_risk += 2
+            reasons.append(f'RSI sobrecomprado ({round(rsi, 1)})')
+        elif rsi > 68:
+            fakeout_risk += 1
+            reasons.append(f'RSI alto ({round(rsi, 1)})')
+        if rsi < 28:
+            fakeout_risk += 2
+            reasons.append(f'RSI sobrevendido ({round(rsi, 1)})')
+        last_change = (close.iloc[-1] - close.iloc[-2]) / close.iloc[-2] * 100
+        if last_change > 4:
+            fakeout_risk += 2
+            reasons.append(f'Subida del día muy alta (+{round(last_change, 1)}%)')
+        elif last_change < -4:
+            fakeout_risk += 1
+            reasons.append(f'Caída del día muy alta ({round(last_change, 1)}%)')
+        is_fakeout = fakeout_risk >= 3
+        reason_text = ' + '.join(reasons) if reasons else 'Sin riesgo detectado'
+        return is_fakeout, reason_text, round(rsi, 1)
+    except:
+        return False, 'Sin datos', 0
+
+
+def get_volume_analysis(ticker):
+    """Análisis completo de volumen: RVOL, absorción y capitulación"""
+    try:
+        stock = yf.Ticker(ticker)
+        hist_daily = stock.history(period='30d', interval='1d')
+        if len(hist_daily) < 10:
+            return {
+                'rvol': 1.0, 'volume_signal': '⚪ Normal', 'volume_score': 0,
+                'absorption': False, 'capitulation': False, 'anomaly': False,
+                'last_volume': 0, 'avg_volume': 0
+            }
+
+        avg_volume = float(hist_daily['Volume'][:-1].mean())
+        last_volume = float(hist_daily['Volume'].iloc[-1])
+        rvol = round(last_volume / avg_volume, 2) if avg_volume > 0 else 1.0
+
+        last_close = float(hist_daily['Close'].iloc[-1])
+        prev_close = float(hist_daily['Close'].iloc[-2])
+        price_change_pct = (last_close - prev_close) / prev_close * 100
+
+        volume_score = 0
+        volume_signal = '⚪ Volumen normal'
+        absorption = False
+        capitulation = False
+        anomaly = False
+
+        # RVOL alto con precio subiendo = instituciones acumulando
+        if rvol >= 2.0 and price_change_pct > 0.3:
+            volume_score = 2
+            volume_signal = f'⚡ Acumulación institucional (RVOL {rvol}x)'
+            anomaly = True
+        # RVOL alto con precio bajando = distribución
+        elif rvol >= 2.0 and price_change_pct < -0.3:
+            volume_score = -2
+            volume_signal = f'🔴 Distribución institucional (RVOL {rvol}x)'
+            anomaly = True
+        # ABSORCIÓN: volumen gigante pero precio no se mueve
+        elif rvol >= 2.0 and abs(price_change_pct) <= 0.3:
+            volume_score = -1
+            volume_signal = f'⚠️ Absorción detectada (RVOL {rvol}x, precio plano)'
+            absorption = True
+            anomaly = True
+        # RVOL moderado
+        elif rvol >= 1.5 and price_change_pct > 0.2:
+            volume_score = 1
+            volume_signal = f'🟡 Volumen elevado alcista (RVOL {rvol}x)'
+        elif rvol >= 1.5 and price_change_pct < -0.2:
+            volume_score = -1
+            volume_signal = f'🟠 Volumen elevado bajista (RVOL {rvol}x)'
+        else:
+            volume_signal = f'⚪ Volumen normal (RVOL {rvol}x)'
+
+        # CAPITULACIÓN: volumen gigante + precio sube fuerte al final del día
+        try:
+            hist_intra = stock.history(period='2d', interval='5m')
+            if len(hist_intra) >= 12:
+                last_15min = hist_intra.tail(3)
+                avg_5min_vol = float(hist_intra['Volume'].mean())
+                last_vol = float(last_15min['Volume'].sum())
+                last_price_move = float((last_15min['Close'].iloc[-1] - last_15min['Close'].iloc[0]) / last_15min['Close'].iloc[0] * 100)
+                if last_vol > avg_5min_vol * 3 * 3 and last_price_move > 0.3:
+                    capitulation = True
+                    volume_score += 1.5
+                    volume_signal += ' + 🚀 Capitulación cortos detectada'
+        except:
+            pass
+
+        return {
+            'rvol': rvol,
+            'volume_signal': volume_signal,
+            'volume_score': round(volume_score, 1),
+            'absorption': absorption,
+            'capitulation': capitulation,
+            'anomaly': anomaly,
+            'last_volume': int(last_volume),
+            'avg_volume': int(avg_volume),
+            'price_change_pct': round(price_change_pct, 2)
+        }
+    except:
+        return {
+            'rvol': 1.0, 'volume_signal': '⚪ Sin datos de volumen', 'volume_score': 0,
+            'absorption': False, 'capitulation': False, 'anomaly': False,
+            'last_volume': 0, 'avg_volume': 0, 'price_change_pct': 0
+        }
 
 
 def get_whale_signals(ticker):
@@ -87,25 +265,6 @@ def get_whale_signals(ticker):
                         signals.append({'signal': '⚠️ SHORT SELLER', 'detail': title[:80], 'points': pts})
             except:
                 continue
-        try:
-            stock = yf.Ticker(ticker)
-            hist = stock.history(period='20d', interval='1d')
-            if len(hist) >= 10:
-                avg_volume = hist['Volume'][:-1].mean()
-                last_volume = hist['Volume'].iloc[-1]
-                ratio = last_volume / avg_volume if avg_volume > 0 else 1
-                if ratio >= 3:
-                    last_close = hist['Close'].iloc[-1]
-                    prev_close = hist['Close'].iloc[-2]
-                    price_change = (last_close - prev_close) / prev_close
-                    if price_change > 0.005:
-                        score += 1
-                        signals.append({'signal': '📊 Volumen COMPRA anormal', 'detail': f'Volumen {ratio:.1f}x la media', 'points': 1})
-                    elif price_change < -0.005:
-                        score -= 1
-                        signals.append({'signal': '📊 Volumen VENTA anormal', 'detail': f'Volumen {ratio:.1f}x la media', 'points': -1})
-        except:
-            pass
         return round(score, 1), signals
     except:
         return 0, []
@@ -155,13 +314,9 @@ def get_gap_room(ticker):
         room_up = round((resistance - current) / current * 100, 2)
         room_down = round((current - support) / current * 100, 2)
         return {
-            'room_up': room_up,
-            'room_down': room_down,
-            'near_resistance': bool(room_up < 1.5),
-            'near_support': bool(room_down < 1.5),
-            'resistance': round(resistance, 2),
-            'support': round(support, 2),
-            'current': round(current, 2)
+            'room_up': room_up, 'room_down': room_down,
+            'near_resistance': bool(room_up < 1.5), 'near_support': bool(room_down < 1.5),
+            'resistance': round(resistance, 2), 'support': round(support, 2), 'current': round(current, 2)
         }
     except:
         return {'room_up': 5, 'room_down': 5, 'near_resistance': False, 'near_support': False, 'resistance': 0, 'support': 0, 'current': 0}
@@ -176,8 +331,8 @@ def get_sector_correlation(ticker):
         peer_hist = peer_stock.history(period='5d', interval='1d')
         if len(peer_hist) < 2:
             return 0, None
-        peer_change = (peer_hist['Close'].iloc[-1] - peer_hist['Close'].iloc[-2]) / peer_hist['Close'].iloc[-2] * 100
-        peer_change = round(float(peer_change), 2)
+        peer_change = float((peer_hist['Close'].iloc[-1] - peer_hist['Close'].iloc[-2]) / peer_hist['Close'].iloc[-2] * 100)
+        peer_change = round(peer_change, 2)
         if peer_change > 0.5:
             return 1, {'ticker': peer, 'change': peer_change, 'signal': '🟢 Par sectorial ALCISTA'}
         elif peer_change < -0.5:
@@ -192,28 +347,25 @@ def get_futures_sentiment():
         qqq = yf.Ticker('QQQ')
         hist = qqq.history(period='2d', interval='5m')
         if len(hist) < 6:
-            return 0, 'Sin datos de futuros'
+            return 0, 'Sin datos', 0
         last_30min = hist.tail(6)
-        change_30m = (last_30min['Close'].iloc[-1] - last_30min['Close'].iloc[0]) / last_30min['Close'].iloc[0] * 100
-        change_30m = round(float(change_30m), 3)
+        change_30m = float((last_30min['Close'].iloc[-1] - last_30min['Close'].iloc[0]) / last_30min['Close'].iloc[0] * 100)
+        change_30m = round(change_30m, 3)
         if change_30m >= 0.3:
-            return 1, f'🟢 Nasdaq +{change_30m}% ultimos 30min'
+            return 1, f'🟢 Nasdaq +{change_30m}% ultimos 30min', change_30m
         elif change_30m <= -0.3:
-            return -1, f'🔴 Nasdaq {change_30m}% ultimos 30min'
+            return -1, f'🔴 Nasdaq {change_30m}% ultimos 30min', change_30m
         else:
-            return 0, f'⚪ Nasdaq {change_30m}% ultimos 30min'
+            return 0, f'⚪ Nasdaq {change_30m}% ultimos 30min', change_30m
     except:
-        return 0, 'Sin datos de futuros'
+        return 0, 'Sin datos de futuros', 0
 
 
 def get_macro_sentiment():
     try:
         queries = [
-            'Federal+Reserve+interest+rates',
-            'Trump+economy+market+tariffs',
-            'stock+market+inflation+GDP',
-            'hedge+fund+institutional+investors',
-            'Warren+Buffett+Berkshire'
+            'Federal+Reserve+interest+rates', 'Trump+economy+market+tariffs',
+            'stock+market+inflation+GDP', 'hedge+fund+institutional+investors', 'Warren+Buffett+Berkshire'
         ]
         all_sentiments = []
         all_news = []
@@ -314,7 +466,10 @@ def calculate_gap_probability(ticker):
         overnight_drift, drift_trend, recent_drift = get_overnight_drift(ticker)
         gap_room = get_gap_room(ticker)
         sector_score, sector_info = get_sector_correlation(ticker)
-        futures_score, futures_signal = get_futures_sentiment()
+        futures_score, futures_signal, futures_change = get_futures_sentiment()
+        social_score, social_trend, bull_pct, msg_count = get_stocktwits_sentiment(ticker)
+        is_fakeout, fakeout_reason, rsi_value = get_fakeout_detector(ticker, tech_score)
+        volume_data = get_volume_analysis(ticker)
 
         final_prob = hist_prob + (tech_score * 0.3) + (news_sentiment * 15) + (macro_sentiment * 10)
 
@@ -324,7 +479,6 @@ def calculate_gap_probability(ticker):
             final_prob += 5
 
         final_prob += whale_score * 5
-
         if overnight_drift > 0.1:
             final_prob += 5
         elif overnight_drift < -0.1:
@@ -332,13 +486,26 @@ def calculate_gap_probability(ticker):
 
         final_prob += sector_score * 8
         final_prob += futures_score * 10
+        final_prob += social_score * 8
+        final_prob += volume_data['volume_score'] * 5
 
         if gap_room.get('near_resistance') and final_prob >= 50:
             final_prob -= 8
 
+        # Fakeout penaliza si la señal es alcista pero hay riesgo
+        if is_fakeout and final_prob >= 50:
+            final_prob -= 10
+
         final_prob = max(15, min(85, final_prob))
         direction = "ALCISTA" if final_prob >= 50 else "BAJISTA"
         display_prob = final_prob if final_prob >= 50 else 100 - final_prob
+
+        # Alerta de contradicción futuros
+        futures_warning = False
+        if direction == 'ALCISTA' and futures_change <= -0.3:
+            futures_warning = True
+        elif direction == 'BAJISTA' and futures_change >= 0.3:
+            futures_warning = True
 
         return {
             'ticker': ticker,
@@ -346,6 +513,7 @@ def calculate_gap_probability(ticker):
             'direction': direction,
             'earnings': earnings_info,
             'tech_score': tech_score,
+            'rsi_value': rsi_value,
             'news_sentiment': float(news_sentiment),
             'macro_sentiment': float(macro_sentiment),
             'news': news_list[:5],
@@ -357,27 +525,30 @@ def calculate_gap_probability(ticker):
             'recent_drift': float(recent_drift),
             'gap_room': gap_room,
             'sector_info': sector_info,
-            'futures_signal': futures_signal
+            'futures_signal': futures_signal,
+            'futures_change': futures_change,
+            'futures_warning': futures_warning,
+            'social_score': float(social_score),
+            'social_trend': social_trend,
+            'bull_pct': bull_pct,
+            'msg_count': msg_count,
+            'is_fakeout': is_fakeout,
+            'fakeout_reason': fakeout_reason,
+            'volume': volume_data
         }
     except Exception as e:
         return {
-            'ticker': ticker,
-            'probability': 50,
-            'direction': 'NEUTRAL',
+            'ticker': ticker, 'probability': 50, 'direction': 'NEUTRAL',
             'earnings': {'has_earnings': False, 'days_to_earnings': 999, 'earnings_date': None},
-            'tech_score': 0,
-            'news_sentiment': 0,
-            'macro_sentiment': 0,
-            'news': [],
-            'macro_news': [],
-            'whale_signals': [],
-            'whale_score': 0,
-            'overnight_drift': 0,
-            'drift_trend': 'neutral',
-            'recent_drift': 0,
+            'tech_score': 0, 'rsi_value': 50, 'news_sentiment': 0, 'macro_sentiment': 0,
+            'news': [], 'macro_news': [], 'whale_signals': [], 'whale_score': 0,
+            'overnight_drift': 0, 'drift_trend': 'neutral', 'recent_drift': 0,
             'gap_room': {'room_up': 5, 'room_down': 5, 'near_resistance': False, 'near_support': False},
-            'sector_info': None,
-            'futures_signal': 'Sin datos'
+            'sector_info': None, 'futures_signal': 'Sin datos', 'futures_change': 0,
+            'futures_warning': False, 'social_score': 0, 'social_trend': 'Sin datos',
+            'bull_pct': 50, 'msg_count': 0, 'is_fakeout': False, 'fakeout_reason': '',
+            'volume': {'rvol': 1.0, 'volume_signal': 'Sin datos', 'volume_score': 0,
+                       'absorption': False, 'capitulation': False, 'anomaly': False}
         }
 
 
@@ -397,14 +568,12 @@ def save_trades(trades):
 def index():
     return render_template('index.html')
 
-
 @app.route('/analyze', methods=['POST'])
 def analyze():
     data = request.json
     ticker = data.get('ticker', '').upper()
     result = calculate_gap_probability(ticker)
     return jsonify(result)
-
 
 @app.route('/dashboard')
 def dashboard():
@@ -414,27 +583,22 @@ def dashboard():
         results.append(result)
     return jsonify(results)
 
-
 @app.route('/earnings_calendar')
 def earnings_calendar():
     results = []
     for ticker in MAGNIFICENT_7:
         info = get_earnings_info(ticker)
         results.append({
-            'ticker': ticker,
-            'company': COMPANY_NAMES.get(ticker, ticker),
-            'has_earnings': info['has_earnings'],
-            'days_to_earnings': info['days_to_earnings'],
+            'ticker': ticker, 'company': COMPANY_NAMES.get(ticker, ticker),
+            'has_earnings': info['has_earnings'], 'days_to_earnings': info['days_to_earnings'],
             'earnings_date': info['earnings_date']
         })
     results.sort(key=lambda x: x['days_to_earnings'])
     return jsonify(results)
 
-
 @app.route('/trades', methods=['GET'])
 def get_trades():
     return jsonify(load_trades())
-
 
 @app.route('/trades', methods=['POST'])
 def add_trade():
@@ -446,7 +610,6 @@ def add_trade():
     save_trades(trades)
     return jsonify(trade)
 
-
 @app.route('/trades/<int:trade_id>', methods=['PUT'])
 def update_trade(trade_id):
     trades = load_trades()
@@ -457,14 +620,12 @@ def update_trade(trade_id):
     save_trades(trades)
     return jsonify({'ok': True})
 
-
 @app.route('/trades/<int:trade_id>', methods=['DELETE'])
 def delete_trade(trade_id):
     trades = load_trades()
     trades = [t for t in trades if t['id'] != trade_id]
     save_trades(trades)
     return jsonify({'ok': True})
-
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000)
