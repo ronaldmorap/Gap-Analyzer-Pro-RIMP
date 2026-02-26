@@ -21,8 +21,8 @@ COMPANY_NAMES = {
 
 SECTOR_PEERS = {
     'META': 'GOOGL', 'GOOGL': 'META', 'AAPL': 'MSFT', 'MSFT': 'AAPL',
-    'NVDA': 'AMD', 'AMZN': 'MSFT', 'TSLA': 'RIVN',
-    'NFLX': 'DIS', 'RACE': 'TSLA'
+    'NVDA': 'AMD',   'AMZN': 'MSFT',  'TSLA': 'RIVN',
+    'NFLX': 'DIS',   'RACE': 'TSLA'
 }
 
 NASDAQ_STOCKS = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA', 'META', 'TSLA', 'NFLX']
@@ -46,115 +46,127 @@ HIGH_IMPACT_KEYWORDS = [
     'inflation report', 'jobs report'
 ]
 
-MT5_LOTS   = 65          # Lotaje fijo FTMO
+MT5_LOTS    = 65
 TRADES_FILE = 'trades.json'
 
 
 # ═══════════════════════════════════════════════════════════════════
-#  EARNINGS  ── triple método para máxima fiabilidad
+#  EARNINGS  — ventana ampliada a 30 días pasados
 # ═══════════════════════════════════════════════════════════════════
 
-def _build_earnings_result(dt_ts, investor_url, status):
-    """Construye el dict de earnings a partir de un Timestamp."""
-    today = pd.Timestamp.now(tz='UTC').normalize()
-    # Normalizar ignorando timezone
+def _norm_ts(ts):
+    """Convierte cualquier cosa a Timestamp naive normalizado (medianoche)."""
     try:
-        dt_norm = dt_ts.tz_localize(None).normalize() if dt_ts.tzinfo else dt_ts.normalize()
+        t = pd.Timestamp(str(ts)[:10])   # recorta a YYYY-MM-DD
+        return t.normalize()
     except Exception:
-        dt_norm = pd.Timestamp(str(dt_ts)[:10])
-    days_diff = (dt_norm - today.tz_localize(None)).days
-    return {
-        'has_earnings':     True,
-        'days_to_earnings': int(days_diff),
-        'earnings_date':    str(dt_norm.date()),
-        'earnings_time':    'After Market (22:00 CET)',
-        'investor_url':     investor_url,
-        'status':           status
-    }
+        return None
 
 
 def get_earnings_info(ticker):
     investor_url = INVESTOR_URLS.get(ticker, '')
-    stock = yf.Ticker(ticker)
-    today_naive = pd.Timestamp.now().normalize()
+    stock        = yf.Ticker(ticker)
+    today        = pd.Timestamp.now().normalize()   # naive
 
-    # ── MÉTODO 1: get_earnings_dates (más completo, incluye pasados) ──
+    # ── MÉTODO 1: get_earnings_dates (limit=20 para cubrir pasados) ──
     try:
-        ed = stock.get_earnings_dates(limit=12)
+        ed = stock.get_earnings_dates(limit=20)
         if ed is not None and not ed.empty:
-            # Ordenar de más antiguo a más reciente para iterar
             candidates = []
             for dt in ed.index:
-                try:
-                    dt_norm = pd.Timestamp(str(dt)[:10])
-                    days_diff = (dt_norm - today_naive).days
-                    candidates.append((days_diff, dt_norm))
-                except Exception:
+                norm = _norm_ts(dt)
+                if norm is None:
                     continue
+                days = (norm - today).days
+                candidates.append((days, norm))
 
-            # Buscar el más próximo futuro (0..90 días)
-            future = [(d, dt) for d, dt in candidates if 0 <= d <= 90]
+            # Próximo futuro 0-90 días
+            future = sorted([(d, t) for d, t in candidates if 0 <= d <= 90])
             if future:
-                future.sort()
-                days_diff, dt_norm = future[0]
-                return _build_earnings_result(dt_norm, investor_url, 'upcoming')
+                days, norm = future[0]
+                return {
+                    'has_earnings':     True,
+                    'days_to_earnings': days,
+                    'earnings_date':    str(norm.date()),
+                    'earnings_time':    'After Market (22:00 CET)',
+                    'investor_url':     investor_url,
+                    'status':           'upcoming'
+                }
 
-            # Si no hay futuro, buscar el más reciente pasado (hasta 5 días atrás)
-            past = [(d, dt) for d, dt in candidates if -5 <= d < 0]
+            # Publicado hace 0-30 días (NVDA caso típico)
+            past = sorted([(d, t) for d, t in candidates if -30 <= d < 0], reverse=True)
             if past:
-                past.sort(reverse=True)
-                days_diff, dt_norm = past[0]
-                return _build_earnings_result(dt_norm, investor_url, 'published')
+                days, norm = past[0]
+                return {
+                    'has_earnings':     True,
+                    'days_to_earnings': days,
+                    'earnings_date':    str(norm.date()),
+                    'earnings_time':    'After Market (22:00 CET)',
+                    'investor_url':     investor_url,
+                    'status':           'published'
+                }
     except Exception:
         pass
 
-    # ── MÉTODO 2: calendar ──
+    # ── MÉTODO 2: calendar (dict o DataFrame) ──
     try:
         cal = stock.calendar
         if cal is not None:
-            # calendar puede ser dict o DataFrame según versión de yfinance
+            raw_dates = []
             if isinstance(cal, dict):
-                raw = cal.get('Earnings Date') or cal.get('earnings_date')
-                if raw:
-                    dates = raw if isinstance(raw, list) else [raw]
-                    for d in dates:
-                        try:
-                            dt_norm = pd.Timestamp(str(d)[:10])
-                            days_diff = (dt_norm - today_naive).days
-                            if -5 <= days_diff <= 90:
-                                status = 'published' if days_diff < 0 else 'upcoming'
-                                return _build_earnings_result(dt_norm, investor_url, status)
-                        except Exception:
-                            continue
+                v = cal.get('Earnings Date') or cal.get('earnings_date')
+                if v:
+                    raw_dates = v if isinstance(v, list) else [v]
             elif hasattr(cal, 'empty') and not cal.empty:
                 for col in ['Earnings Date', 'earnings_date']:
                     if col in cal.columns:
-                        raw_date = cal.iloc[0][col]
-                        if raw_date:
-                            dt_norm = pd.Timestamp(str(raw_date)[:10])
-                            days_diff = (dt_norm - today_naive).days
-                            if -5 <= days_diff <= 90:
-                                status = 'published' if days_diff < 0 else 'upcoming'
-                                return _build_earnings_result(dt_norm, investor_url, status)
+                        raw_dates = list(cal[col].dropna())
+                        break
+
+            for raw in raw_dates:
+                norm = _norm_ts(raw)
+                if norm is None:
+                    continue
+                days = (norm - today).days
+                if -30 <= days <= 90:
+                    status = 'published' if days < 0 else 'upcoming'
+                    return {
+                        'has_earnings':     True,
+                        'days_to_earnings': days,
+                        'earnings_date':    str(norm.date()),
+                        'earnings_time':    'After Market (22:00 CET)',
+                        'investor_url':     investor_url,
+                        'status':           status
+                    }
     except Exception:
         pass
 
-    # ── MÉTODO 3: info dict ──
+    # ── MÉTODO 3: info dict (earningsDate / earningsTimestamp) ──
     try:
         info = stock.info
-        raw = info.get('earningsDate') or info.get('earningsTimestamp')
-        if raw:
-            # earningsDate puede ser lista de unix timestamps o fechas
+        for key in ['earningsDate', 'earningsTimestamp']:
+            raw = info.get(key)
+            if not raw:
+                continue
             if isinstance(raw, list):
                 raw = raw[0]
             if isinstance(raw, (int, float)):
-                dt_norm = pd.Timestamp.fromtimestamp(raw).normalize()
+                norm = pd.Timestamp.fromtimestamp(raw).normalize()
             else:
-                dt_norm = pd.Timestamp(str(raw)[:10])
-            days_diff = (dt_norm - today_naive).days
-            if -5 <= days_diff <= 90:
-                status = 'published' if days_diff < 0 else 'upcoming'
-                return _build_earnings_result(dt_norm, investor_url, status)
+                norm = _norm_ts(raw)
+            if norm is None:
+                continue
+            days = (norm - today).days
+            if -30 <= days <= 90:
+                status = 'published' if days < 0 else 'upcoming'
+                return {
+                    'has_earnings':     True,
+                    'days_to_earnings': days,
+                    'earnings_date':    str(norm.date()),
+                    'earnings_time':    'After Market (22:00 CET)',
+                    'investor_url':     investor_url,
+                    'status':           status
+                }
     except Exception:
         pass
 
@@ -169,14 +181,15 @@ def get_earnings_info(ticker):
 
 
 # ═══════════════════════════════════════════════════════════════════
-#  NOTICIAS MACRO
+#  NOTICIAS
 # ═══════════════════════════════════════════════════════════════════
 
 def check_high_impact_news():
     try:
-        query = 'CPI+OR+NFP+OR+FOMC+OR+GDP+OR+inflation+report+OR+jobs+report+today'
-        url   = f'https://news.google.com/rss/search?q={query}&hl=en-US&gl=US&ceid=US:en'
-        root  = ET.fromstring(requests.get(url, timeout=8).content)
+        q    = 'CPI+OR+NFP+OR+FOMC+OR+GDP+OR+inflation+report+OR+jobs+report+today'
+        root = ET.fromstring(requests.get(
+            f'https://news.google.com/rss/search?q={q}&hl=en-US&gl=US&ceid=US:en',
+            timeout=8).content)
         for item in root.findall('.//item')[:10]:
             title = (item.find('title').text or '').upper()
             for kw in HIGH_IMPACT_KEYWORDS:
@@ -190,14 +203,14 @@ def check_high_impact_news():
 def get_news_sentiment(ticker):
     try:
         company = COMPANY_NAMES.get(ticker, ticker)
-        url  = f'https://news.google.com/rss/search?q={company}+stock&hl=en-US&gl=US&ceid=US:en'
-        root = ET.fromstring(requests.get(url, timeout=8).content)
+        root = ET.fromstring(requests.get(
+            f'https://news.google.com/rss/search?q={company}+stock&hl=en-US&gl=US&ceid=US:en',
+            timeout=8).content)
         sentiments, news_list = [], []
         for item in root.findall('.//item')[:8]:
-            title    = item.find('title').text or ''
-            pub_date = item.find('pubDate')
-            date     = pub_date.text[:16] if pub_date is not None else ''
-            s        = TextBlob(title).sentiment.polarity
+            title = item.find('title').text or ''
+            date  = (item.find('pubDate').text or '')[:16]
+            s     = TextBlob(title).sentiment.polarity
             sentiments.append(s)
             news_list.append({'title': title[:80], 'sentiment': round(s, 2), 'published': date})
         avg = sum(sentiments) / len(sentiments) if sentiments else 0
@@ -215,13 +228,13 @@ def get_macro_sentiment():
     all_s, all_news = [], []
     for q in queries:
         try:
-            url  = f'https://news.google.com/rss/search?q={q}&hl=en-US&gl=US&ceid=US:en'
-            root = ET.fromstring(requests.get(url, timeout=6).content)
+            root = ET.fromstring(requests.get(
+                f'https://news.google.com/rss/search?q={q}&hl=en-US&gl=US&ceid=US:en',
+                timeout=6).content)
             for item in root.findall('.//item')[:2]:
-                title    = item.find('title').text or ''
-                pub_date = item.find('pubDate')
-                date     = pub_date.text[:16] if pub_date is not None else ''
-                s        = TextBlob(title).sentiment.polarity
+                title = item.find('title').text or ''
+                date  = (item.find('pubDate').text or '')[:16]
+                s     = TextBlob(title).sentiment.polarity
                 all_s.append(s)
                 all_news.append({'title': title[:80], 'sentiment': round(s, 2), 'published': date})
         except Exception:
@@ -242,14 +255,14 @@ def get_futures_sentiment(ticker='AAPL'):
         hist       = yf.Ticker(idx_tk).history(period='2d', interval='5m')
         if len(hist) < 6:
             return 0, 'Sin datos', 0, index_name
-        last_30 = hist.tail(6)
-        chg     = float((last_30['Close'].iloc[-1] - last_30['Close'].iloc[0]) / last_30['Close'].iloc[0] * 100)
-        chg     = round(chg, 3)
-        emoji   = '🟢' if chg >= 0.3 else '🔴' if chg <= -0.3 else '⚪'
-        sign    = '+' if chg > 0 else ''
-        signal  = f'{emoji} {index_name} {sign}{chg}% últimos 30min'
-        score   = 1 if chg >= 0.3 else -1 if chg <= -0.3 else 0
-        return score, signal, chg, index_name
+        last30 = hist.tail(6)
+        chg    = float((last30['Close'].iloc[-1] - last30['Close'].iloc[0])
+                       / last30['Close'].iloc[0] * 100)
+        chg    = round(chg, 3)
+        emoji  = '🟢' if chg >= 0.3 else '🔴' if chg <= -0.3 else '⚪'
+        sign   = '+' if chg > 0 else ''
+        score  = 1 if chg >= 0.3 else -1 if chg <= -0.3 else 0
+        return score, f'{emoji} {index_name} {sign}{chg}% últimos 30min', chg, index_name
     except Exception:
         return 0, 'Sin datos de futuros', 0, 'Índice'
 
@@ -260,29 +273,26 @@ def get_futures_sentiment(ticker='AAPL'):
 
 def get_stocktwits_sentiment(ticker):
     try:
-        url  = f'https://api.stocktwits.com/api/2/streams/symbol/{ticker}.json'
-        resp = requests.get(url, timeout=8)
+        resp = requests.get(
+            f'https://api.stocktwits.com/api/2/streams/symbol/{ticker}.json',
+            timeout=8)
         if resp.status_code != 200:
             return 0, 'Sin datos', 50, 0
         messages = resp.json().get('messages', [])
         if not messages:
             return 0, 'Sin datos', 50, 0
         bullish = bearish = 0
-        sentiments = []
         for msg in messages[:30]:
             sd = msg.get('entities', {}).get('sentiment', {})
             if sd:
                 if sd.get('basic') == 'Bullish':  bullish += 1
                 elif sd.get('basic') == 'Bearish': bearish += 1
-            body = msg.get('body', '')
-            if body:
-                sentiments.append(TextBlob(body).sentiment.polarity)
         total    = bullish + bearish
         bull_pct = round((bullish / total) * 100) if total > 0 else 50
-        if   bull_pct >= 65: return  1,   '🟢 Muy alcista',          bull_pct, len(messages)
-        elif bull_pct >= 55: return  0.5, '🟡 Ligeramente alcista',  bull_pct, len(messages)
-        elif bull_pct <= 35: return -1,   '🔴 Muy bajista',           bull_pct, len(messages)
-        elif bull_pct <= 45: return -0.5, '🟠 Ligeramente bajista',  bull_pct, len(messages)
+        if   bull_pct >= 65: return  1,   '🟢 Muy alcista',         bull_pct, len(messages)
+        elif bull_pct >= 55: return  0.5, '🟡 Ligeramente alcista', bull_pct, len(messages)
+        elif bull_pct <= 35: return -1,   '🔴 Muy bajista',         bull_pct, len(messages)
+        elif bull_pct <= 45: return -0.5, '🟠 Ligeramente bajista', bull_pct, len(messages)
         return 0, '⚪ Neutral', bull_pct, len(messages)
     except Exception:
         return 0, 'Sin datos StockTwits', 50, 0
@@ -290,30 +300,28 @@ def get_stocktwits_sentiment(ticker):
 
 def get_whale_signals(ticker):
     score, signals = 0, []
-    queries = [
-        f'{ticker}+insider+buying+OR+selling',
-        f'{ticker}+Goldman+Sachs+OR+Morgan+Stanley+upgrade+OR+downgrade',
-        f'{ticker}+hindenburg+OR+short+seller'
-    ]
-    for q in queries:
+    for q in [f'{ticker}+insider+buying+OR+selling',
+              f'{ticker}+Goldman+Sachs+OR+Morgan+Stanley+upgrade+OR+downgrade',
+              f'{ticker}+hindenburg+OR+short+seller']:
         try:
-            url  = f'https://news.google.com/rss/search?q={q}&hl=en-US&gl=US&ceid=US:en'
-            root = ET.fromstring(requests.get(url, timeout=6).content)
+            root = ET.fromstring(requests.get(
+                f'https://news.google.com/rss/search?q={q}&hl=en-US&gl=US&ceid=US:en',
+                timeout=6).content)
             for item in root.findall('.//item')[:2]:
-                title    = item.find('title').text or ''
-                tl       = title.lower()
-                pub_date = item.find('pubDate').text or ''
-                m        = 1.5 if 'pm' in pub_date.lower() else 1.0
-                if   any(w in tl for w in ['insider buy','purchased','acquired']):
-                    pts = round(3*m, 1);   score += pts; signals.append({'signal':'🐋 Insider COMPRA','detail':title[:80],'points':pts})
-                elif any(w in tl for w in ['insider sell','disposed']):
-                    pts = round(-2.5*m,1); score += pts; signals.append({'signal':'🔴 Insider VENDE','detail':title[:80],'points':pts})
+                title = item.find('title').text or ''
+                tl    = title.lower()
+                pub   = item.find('pubDate').text or ''
+                m     = 1.5 if 'pm' in pub.lower() else 1.0
+                if   any(w in tl for w in ['insider buy', 'purchased', 'acquired']):
+                    pts = round(3*m, 1);   score += pts; signals.append({'signal':'🐋 Insider COMPRA', 'detail':title[:80],'points':pts})
+                elif any(w in tl for w in ['insider sell', 'disposed']):
+                    pts = round(-2.5*m,1); score += pts; signals.append({'signal':'🔴 Insider VENDE',  'detail':title[:80],'points':pts})
                 elif any(w in tl for w in ['upgrade','outperform','overweight','strong buy']):
-                    pts = round(1.5*m, 1); score += pts; signals.append({'signal':'🏦 Banco UPGRADE','detail':title[:80],'points':pts})
+                    pts = round(1.5*m, 1); score += pts; signals.append({'signal':'🏦 Banco UPGRADE',  'detail':title[:80],'points':pts})
                 elif any(w in tl for w in ['downgrade','underperform','underweight']):
                     pts = round(-1.5*m,1); score += pts; signals.append({'signal':'🏦 Banco DOWNGRADE','detail':title[:80],'points':pts})
                 elif any(w in tl for w in ['hindenburg','short seller','fraud']):
-                    pts = round(-3*m, 1);  score += pts; signals.append({'signal':'⚠️ SHORT SELLER','detail':title[:80],'points':pts})
+                    pts = round(-3*m,  1); score += pts; signals.append({'signal':'⚠️ SHORT SELLER',  'detail':title[:80],'points':pts})
         except Exception:
             continue
     return round(score, 1), signals
@@ -323,7 +331,7 @@ def get_whale_signals(ticker):
 #  TÉCNICO
 # ═══════════════════════════════════════════════════════════════════
 
-def get_fakeout_detector(ticker, _rsi_score):
+def get_fakeout_detector(ticker, _=None):
     try:
         hist  = yf.Ticker(ticker).history(period='3mo')
         if hist.empty:
@@ -333,11 +341,11 @@ def get_fakeout_detector(ticker, _rsi_score):
         loss  = (-close.diff().clip(upper=0)).rolling(14).mean()
         rsi   = float(100 - (100 / (1 + gain.iloc[-1] / loss.iloc[-1])))
         risk, reasons = 0, []
-        if rsi > 72: risk += 2; reasons.append(f'RSI sobrecomprado ({round(rsi,1)})')
-        elif rsi > 68: risk += 1; reasons.append(f'RSI alto ({round(rsi,1)})')
-        if rsi < 28: risk += 2; reasons.append(f'RSI sobrevendido ({round(rsi,1)})')
+        if rsi > 72:  risk += 2; reasons.append(f'RSI sobrecomprado ({round(rsi,1)})')
+        elif rsi > 68:risk += 1; reasons.append(f'RSI alto ({round(rsi,1)})')
+        if rsi < 28:  risk += 2; reasons.append(f'RSI sobrevendido ({round(rsi,1)})')
         lc = float((close.iloc[-1] - close.iloc[-2]) / close.iloc[-2] * 100)
-        if lc > 4:  risk += 2; reasons.append(f'Subida muy alta (+{round(lc,1)}%)')
+        if lc > 4:    risk += 2; reasons.append(f'Subida muy alta (+{round(lc,1)}%)')
         elif lc < -4: risk += 1; reasons.append(f'Caída muy alta ({round(lc,1)}%)')
         return risk >= 3, ' + '.join(reasons) if reasons else 'Sin riesgo detectado', round(rsi, 1)
     except Exception:
@@ -352,31 +360,25 @@ def get_volume_analysis(ticker):
         hist = yf.Ticker(ticker).history(period='30d', interval='1d')
         if len(hist) < 10:
             return empty
-        avg_vol   = float(hist['Volume'][:-1].mean())
-        last_vol  = float(hist['Volume'].iloc[-1])
-        rvol      = round(last_vol / avg_vol, 2) if avg_vol > 0 else 1.0
-        last_c    = float(hist['Close'].iloc[-1])
-        prev_c    = float(hist['Close'].iloc[-2])
-        pct       = (last_c - prev_c) / prev_c * 100
+        avg_vol  = float(hist['Volume'][:-1].mean())
+        last_vol = float(hist['Volume'].iloc[-1])
+        rvol     = round(last_vol / avg_vol, 2) if avg_vol > 0 else 1.0
+        last_c   = float(hist['Close'].iloc[-1])
+        prev_c   = float(hist['Close'].iloc[-2])
+        pct      = (last_c - prev_c) / prev_c * 100
         score, absorption, capitulation, anomaly = 0, False, False, False
-        if   rvol >= 2.0 and pct > 0.3:
-            score = 2;  vsig = f'⚡ Acumulación institucional (RVOL {rvol}x)'; anomaly = True
-        elif rvol >= 2.0 and pct < -0.3:
-            score = -2; vsig = f'🔴 Distribución institucional (RVOL {rvol}x)'; anomaly = True
-        elif rvol >= 2.0 and abs(pct) <= 0.3:
-            score = -1; vsig = f'⚠️ Absorción detectada (RVOL {rvol}x)'; absorption = True; anomaly = True
-        elif rvol >= 1.5 and pct > 0.2:
-            score = 1;  vsig = f'🟡 Volumen elevado alcista (RVOL {rvol}x)'
-        elif rvol >= 1.5 and pct < -0.2:
-            score = -1; vsig = f'🟠 Volumen elevado bajista (RVOL {rvol}x)'
-        else:
-            vsig = f'⚪ Volumen normal (RVOL {rvol}x)'
+        if   rvol >= 2.0 and pct >  0.3: score= 2; vsig=f'⚡ Acumulación institucional (RVOL {rvol}x)'; anomaly=True
+        elif rvol >= 2.0 and pct < -0.3: score=-2; vsig=f'🔴 Distribución institucional (RVOL {rvol}x)'; anomaly=True
+        elif rvol >= 2.0:                 score=-1; vsig=f'⚠️ Absorción detectada (RVOL {rvol}x)'; absorption=True; anomaly=True
+        elif rvol >= 1.5 and pct >  0.2: score= 1; vsig=f'🟡 Volumen elevado alcista (RVOL {rvol}x)'
+        elif rvol >= 1.5 and pct < -0.2: score=-1; vsig=f'🟠 Volumen elevado bajista (RVOL {rvol}x)'
+        else:                              vsig=f'⚪ Volumen normal (RVOL {rvol}x)'
         try:
             hi = yf.Ticker(ticker).history(period='2d', interval='5m')
             if len(hi) >= 12:
                 t3 = hi.tail(3)
-                if float(t3['Volume'].sum()) > float(hi['Volume'].mean()) * 9 and \
-                   float((t3['Close'].iloc[-1]-t3['Close'].iloc[0])/t3['Close'].iloc[0]*100) > 0.3:
+                if (float(t3['Volume'].sum()) > float(hi['Volume'].mean()) * 9 and
+                    float((t3['Close'].iloc[-1]-t3['Close'].iloc[0])/t3['Close'].iloc[0]*100) > 0.3):
                     capitulation = True; score += 1.5; vsig += ' + 🚀 Capitulación cortos'
         except Exception:
             pass
@@ -392,8 +394,8 @@ def get_overnight_drift(ticker):
         hist = yf.Ticker(ticker).history(period='30d', interval='1d')
         if len(hist) < 5:
             return 0, 'neutral', 0
-        rets = [(float(hist['Open'].iloc[i]) - float(hist['Close'].iloc[i-1])) /
-                float(hist['Close'].iloc[i-1]) * 100
+        rets = [(float(hist['Open'].iloc[i]) - float(hist['Close'].iloc[i-1]))
+                / float(hist['Close'].iloc[i-1]) * 100
                 for i in range(1, len(hist)) if float(hist['Close'].iloc[i-1]) > 0]
         if not rets:
             return 0, 'neutral', 0
@@ -409,17 +411,17 @@ def get_gap_room(ticker):
     empty = {'room_up':5,'room_down':5,'near_resistance':False,
              'near_support':False,'resistance':0,'support':0,'current':0}
     try:
-        hist    = yf.Ticker(ticker).history(period='1y', interval='1d')
+        hist = yf.Ticker(ticker).history(period='1y', interval='1d')
         if len(hist) < 20:
             return empty
-        current    = float(hist['Close'].iloc[-1])
+        cur        = float(hist['Close'].iloc[-1])
         resistance = min(float(hist['High'].max()), float(hist['High'].tail(60).max()) * 1.02)
         support    = max(float(hist['Low'].min()),  float(hist['Low'].tail(60).min())  * 0.98)
-        room_up    = round((resistance - current) / current * 100, 2)
-        room_down  = round((current - support)    / current * 100, 2)
+        room_up    = round((resistance - cur) / cur * 100, 2)
+        room_down  = round((cur - support)    / cur * 100, 2)
         return {'room_up':room_up,'room_down':room_down,
                 'near_resistance':bool(room_up < 1.5),'near_support':bool(room_down < 1.5),
-                'resistance':round(resistance,2),'support':round(support,2),'current':round(current,2)}
+                'resistance':round(resistance,2),'support':round(support,2),'current':round(cur,2)}
     except Exception:
         return empty
 
@@ -432,8 +434,9 @@ def get_sector_correlation(ticker):
         ph  = yf.Ticker(peer).history(period='5d', interval='1d')
         if len(ph) < 2:
             return 0, None
-        chg = round(float((ph['Close'].iloc[-1] - ph['Close'].iloc[-2]) / ph['Close'].iloc[-2] * 100), 2)
-        if   chg > 0.5:  return  1, {'ticker':peer,'change':chg,'signal':'🟢 Par sectorial ALCISTA'}
+        chg = round(float((ph['Close'].iloc[-1] - ph['Close'].iloc[-2])
+                          / ph['Close'].iloc[-2] * 100), 2)
+        if   chg >  0.5: return  1, {'ticker':peer,'change':chg,'signal':'🟢 Par sectorial ALCISTA'}
         elif chg < -0.5: return -1, {'ticker':peer,'change':chg,'signal':'🔴 Par sectorial BAJISTA'}
         return 0, {'ticker':peer,'change':chg,'signal':'⚪ Par sectorial NEUTRAL'}
     except Exception:
@@ -478,43 +481,63 @@ def get_technical_score(ticker):
 
 
 # ═══════════════════════════════════════════════════════════════════
-#  CALCULADORA FTMO — lotaje fijo 65
+#  CALCULADORA FTMO — 65 lotes fijos con validación de dirección
 # ═══════════════════════════════════════════════════════════════════
 
-def calculate_fixed_risk(stop_loss_price, current_price, days_to_earnings):
+def calculate_fixed_risk(stop_loss_price, current_price, days_to_earnings, raw_direction):
     """
-    Calcula el riesgo monetario con lotaje fijo de 65.
-    Si hay earnings ≤1 día, añade también el riesgo catastrófico al 15%.
+    Calcula el riesgo monetario con 65 lotes fijos.
+    Valida que el Stop Loss tenga sentido según la dirección:
+      - ALCISTA  → SL debe estar POR DEBAJO del precio actual
+      - BAJISTA  → SL debe estar POR ENCIMA del precio actual
     """
     result = {
-        'mt5_volume': MT5_LOTS,
-        'risk_cash': None,
-        'message': None,
-        'earnings_alert': None,
-        'catastrophic_risk': None
+        'mt5_volume':       MT5_LOTS,
+        'risk_cash':        None,
+        'message':          None,
+        'earnings_alert':   None,
+        'catastrophic_risk':None,
+        'sl_error':         None
     }
 
-    # Riesgo normal con Stop Loss
-    if stop_loss_price is not None and current_price is not None:
-        try:
-            sl   = float(stop_loss_price)
-            cp   = float(current_price)
-            risk = round(abs(cp - sl) * MT5_LOTS, 2)
-            result['risk_cash'] = risk
-            result['message']   = f'Operando {MT5_LOTS} lotes. Riesgo asumido: ${risk:,.2f}'
-        except Exception:
-            pass
-
-    # Modo Earnings: riesgo catastrófico al 15%
+    # Riesgo catastrófico por earnings (siempre calculado si aplica)
     if current_price is not None and days_to_earnings <= 1:
         try:
-            cp   = float(current_price)
-            cat  = round(cp * 0.15 * MT5_LOTS, 2)
+            cat = round(float(current_price) * 0.15 * MT5_LOTS, 2)
             result['catastrophic_risk'] = cat
             result['earnings_alert'] = (
                 f'⚠️ ALERTA EARNINGS: Un gap en contra del 15% '
                 f'te haría perder ${cat:,.2f} con {MT5_LOTS} lotes'
             )
+        except Exception:
+            pass
+
+    # Riesgo con Stop Loss
+    if stop_loss_price is not None and current_price is not None:
+        try:
+            sl = float(stop_loss_price)
+            cp = float(current_price)
+
+            # Validar dirección vs stop loss
+            if raw_direction == 'ALCISTA' and sl >= cp:
+                result['sl_error'] = (
+                    f'⚠️ Stop Loss inválido para posición ALCISTA. '
+                    f'El SL debe estar por DEBAJO del precio actual (${cp:,.2f}). '
+                    f'Tu SL de ${sl:,.2f} está por encima.'
+                )
+                return result
+
+            if raw_direction == 'BAJISTA' and sl <= cp:
+                result['sl_error'] = (
+                    f'⚠️ Stop Loss inválido para posición BAJISTA. '
+                    f'El SL debe estar por ENCIMA del precio actual (${cp:,.2f}). '
+                    f'Tu SL de ${sl:,.2f} está por debajo.'
+                )
+                return result
+
+            risk = round(abs(cp - sl) * MT5_LOTS, 2)
+            result['risk_cash'] = risk
+            result['message']   = f'Operando {MT5_LOTS} lotes. Riesgo asumido: ${risk:,.2f}'
         except Exception:
             pass
 
@@ -553,18 +576,15 @@ def calculate_gap_probability(ticker, stop_loss_price=None):
         gap_room   = get_gap_room(ticker)
         sec_score, sec_info = get_sector_correlation(ticker)
         fut_score, fut_signal, fut_change, idx_name = get_futures_sentiment(ticker)
-        soc_score, soc_trend, bull_pct, msg_count = get_stocktwits_sentiment(ticker)
-        is_fakeout, fakeout_reason, rsi_val = get_fakeout_detector(ticker, tech_score)
+        soc_score, soc_trend, bull_pct, msg_count   = get_stocktwits_sentiment(ticker)
+        is_fakeout, fakeout_reason, rsi_val = get_fakeout_detector(ticker)
         vol_data   = get_volume_analysis(ticker)
         news_restr, news_restr_reason = check_high_impact_news()
 
-        final = (hist_prob
-                 + tech_score * 0.3
-                 + news_s * 15
-                 + macro_s * 10)
+        final = (hist_prob + tech_score * 0.3 + news_s * 15 + macro_s * 10)
 
         dte = earnings.get('days_to_earnings', 999)
-        if dte <= 1:  final += 10
+        if dte <= 1:   final += 10
         elif dte <= 7: final += 5
 
         final += whale_score * 5
@@ -577,9 +597,9 @@ def calculate_gap_probability(ticker, stop_loss_price=None):
         if gap_room.get('near_resistance') and final >= 50: final -= 8
         if is_fakeout and final >= 50:                       final -= 10
 
-        final      = max(15, min(85, final))
-        raw_dir    = 'ALCISTA' if final >= 50 else 'BAJISTA'
-        disp_prob  = final if final >= 50 else 100 - final
+        final     = max(15, min(85, final))
+        raw_dir   = 'ALCISTA' if final >= 50 else 'BAJISTA'
+        disp_prob = final if final >= 50 else 100 - final
 
         fut_warning = (raw_dir == 'ALCISTA' and fut_change <= -0.3) or \
                       (raw_dir == 'BAJISTA' and fut_change >= 0.3)
@@ -594,8 +614,7 @@ def calculate_gap_probability(ticker, stop_loss_price=None):
         except Exception:
             pass
 
-        # Calculadora riesgo fijo
-        ftmo = calculate_fixed_risk(stop_loss_price, current_price, dte)
+        ftmo = calculate_fixed_risk(stop_loss_price, current_price, dte, raw_dir)
 
         return {
             'ticker':              ticker,
@@ -638,13 +657,13 @@ def calculate_gap_probability(ticker, stop_loss_price=None):
 
     except Exception as e:
         return {
-            'ticker': ticker, 'probability': 50,
-            'direction': 'MERCADO INDECISO / NEUTRO', 'raw_direction': 'NEUTRAL',
-            'strength': 'weak', 'signal_color': 'neutral',
-            'signal_description': f'Error: {str(e)}',
-            'current_price': None,
-            'earnings': {'has_earnings':False,'days_to_earnings':999,'earnings_date':None,
-                         'investor_url':'','status':'unknown'},
+            'ticker':ticker,'probability':50,
+            'direction':'MERCADO INDECISO / NEUTRO','raw_direction':'NEUTRAL',
+            'strength':'weak','signal_color':'neutral',
+            'signal_description':f'Error: {str(e)}',
+            'current_price':None,
+            'earnings':{'has_earnings':False,'days_to_earnings':999,'earnings_date':None,
+                        'investor_url':'','status':'unknown'},
             'tech_score':0,'rsi_value':50,'news_sentiment':0,'macro_sentiment':0,
             'news':[],'macro_news':[],'whale_signals':[],'whale_score':0,
             'overnight_drift':0,'drift_trend':'neutral','recent_drift':0,
@@ -657,7 +676,7 @@ def calculate_gap_probability(ticker, stop_loss_price=None):
                       'absorption':False,'capitulation':False,'anomaly':False},
             'news_restriction':False,'news_restriction_reason':None,
             'ftmo':{'mt5_volume':MT5_LOTS,'risk_cash':None,'message':None,
-                    'earnings_alert':None,'catastrophic_risk':None}
+                    'earnings_alert':None,'catastrophic_risk':None,'sl_error':None}
         }
 
 
@@ -701,14 +720,14 @@ def earnings_calendar():
     for ticker in MARKET_LEADERS:
         info = get_earnings_info(ticker)
         results.append({
-            'ticker':         ticker,
-            'company':        COMPANY_NAMES.get(ticker, ticker),
-            'has_earnings':   info['has_earnings'],
+            'ticker':           ticker,
+            'company':          COMPANY_NAMES.get(ticker, ticker),
+            'has_earnings':     info['has_earnings'],
             'days_to_earnings': info['days_to_earnings'],
-            'earnings_date':  info['earnings_date'],
-            'earnings_time':  info.get('earnings_time', ''),
-            'investor_url':   info.get('investor_url', ''),
-            'status':         info.get('status', 'unknown')
+            'earnings_date':    info['earnings_date'],
+            'earnings_time':    info.get('earnings_time', ''),
+            'investor_url':     info.get('investor_url', ''),
+            'status':           info.get('status', 'unknown')
         })
     results.sort(key=lambda x: x['days_to_earnings'])
     return jsonify(results)

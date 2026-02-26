@@ -7,40 +7,39 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
         :root {
-            --bg:          #f0f2f5;
-            --surface:     #ffffff;
-            --surface2:    #f8f9fb;
-            --border:      #e4e8ef;
-            --border2:     #d0d7e2;
-            --text:        #0f1623;
-            --text2:       #4a5568;
-            --muted:       #8fa0b4;
-            --green:       #0ea569;
-            --green-bg:    #ecfdf4;
-            --green-b:     #a7f3cf;
-            --red:         #dc2626;
-            --red-bg:      #fef2f2;
-            --red-b:       #fca5a5;
-            --amber:       #d97706;
-            --amber-bg:    #fffbeb;
-            --amber-b:     #fcd34d;
-            --neutral:     #6b7280;
-            --neutral-bg:  #f3f4f6;
-            --blue:        #2563eb;
-            --blue-bg:     #eff6ff;
-            --blue-b:      #bfdbfe;
+            --bg:        #f0f2f5;
+            --surface:   #ffffff;
+            --surface2:  #f8f9fb;
+            --border:    #e4e8ef;
+            --border2:   #d0d7e2;
+            --text:      #0f1623;
+            --text2:     #4a5568;
+            --muted:     #8fa0b4;
+            --green:     #0ea569;
+            --green-bg:  #ecfdf4;
+            --green-b:   #a7f3cf;
+            --red:       #dc2626;
+            --red-bg:    #fef2f2;
+            --red-b:     #fca5a5;
+            --amber:     #d97706;
+            --amber-bg:  #fffbeb;
+            --amber-b:   #fcd34d;
+            --neutral:   #6b7280;
+            --neutral-bg:#f3f4f6;
+            --blue:      #2563eb;
+            --blue-bg:   #eff6ff;
+            --blue-b:    #bfdbfe;
             --sh-sm: 0 1px 3px rgba(0,0,0,.07),0 1px 2px rgba(0,0,0,.04);
             --sh:    0 4px 12px rgba(0,0,0,.08),0 1px 3px rgba(0,0,0,.05);
-            --sh-lg: 0 10px 30px rgba(0,0,0,.10),0 4px 8px rgba(0,0,0,.06);
             --r:  14px;
             --rs: 8px;
         }
         *{margin:0;padding:0;box-sizing:border-box}
         body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;min-height:100vh}
 
-        /* ── HEADER ── */
-        .header{background:var(--surface);border-bottom:1px solid var(--border);
-            padding:18px 40px;display:flex;align-items:center;justify-content:space-between;
+        /* HEADER */
+        .header{background:var(--surface);border-bottom:1px solid var(--border);padding:18px 40px;
+            display:flex;align-items:center;justify-content:space-between;
             position:sticky;top:0;z-index:100;box-shadow:var(--sh-sm)}
         .hlogo{display:flex;align-items:center;gap:12px}
         .hdot{width:9px;height:9px;background:var(--green);border-radius:50%;animation:pulse 2s infinite}
@@ -59,7 +58,7 @@
             border-radius:20px;font-size:11px;color:var(--muted);text-transform:uppercase;
             letter-spacing:1px;font-weight:600}
 
-        /* ── BOTONES ── */
+        /* BOTONES */
         .btn-primary{background:var(--text);color:#fff;border:none;padding:13px 26px;
             border-radius:var(--rs);font-size:14px;font-weight:600;cursor:pointer;
             font-family:'Inter',sans-serif;transition:all .18s}
@@ -78,7 +77,7 @@
         .btn-danger:hover{background:#fee2e2}
         .loading{text-align:center;color:var(--muted);padding:30px;font-size:14px;display:none}
 
-        /* ── SEARCH ── */
+        /* SEARCH */
         .search-box{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);
             padding:32px;text-align:center;box-shadow:var(--sh-sm)}
         .search-box p{color:var(--muted);font-size:14px;margin-bottom:18px}
@@ -89,7 +88,7 @@
         .search-input:focus{outline:none;border-color:var(--blue);background:var(--surface)}
         .search-input::placeholder{color:var(--border2);font-weight:400;letter-spacing:1px}
 
-        /* ── RESULT CARD ── */
+        /* RESULT CARD */
         .result-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);
             padding:36px;margin-top:18px;display:none;box-shadow:var(--sh)}
         .res-main{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:20px}
@@ -109,50 +108,60 @@
         .earn-pill{background:var(--amber-bg);border:1px solid var(--amber-b);color:var(--amber);
             padding:7px 16px;border-radius:20px;font-size:13px;font-weight:600;
             display:inline-block;margin-top:8px}
+        .earn-pill.published{background:var(--green-bg);border-color:var(--green-b);color:var(--green)}
 
-        /* ── CALCULADORA FTMO (dentro de resultados) ── */
+        /* CALCULADORA FTMO */
         .ftmo-inline{background:var(--blue-bg);border:1.5px solid var(--blue-b);
             border-radius:var(--r);padding:20px 24px;margin-bottom:18px}
         .ftmo-inline h3{font-size:13px;font-weight:700;color:var(--blue);
-            margin-bottom:14px;display:flex;align-items:center;gap:8px}
-        .ftmo-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+            margin-bottom:6px;display:flex;align-items:center;gap:8px}
+        .ftmo-hint{font-size:12px;color:var(--blue);opacity:.7;margin-bottom:14px;font-style:italic}
+        .ftmo-row{display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap}
         .ftmo-field label{font-size:11px;font-weight:600;color:var(--muted);
             text-transform:uppercase;letter-spacing:.8px;display:block;margin-bottom:5px}
         .ftmo-input{background:var(--surface);border:1.5px solid var(--blue-b);color:var(--text);
             padding:10px 14px;border-radius:var(--rs);font-size:14px;font-family:'Inter',sans-serif;
-            font-weight:500;width:160px;transition:border-color .18s}
+            font-weight:500;width:180px;transition:border-color .18s}
         .ftmo-input:focus{outline:none;border-color:var(--blue)}
-        .btn-calc{background:var(--blue);color:#fff;border:none;padding:10px 20px;
+        .btn-calc{background:var(--blue);color:#fff;border:none;padding:10px 22px;
             border-radius:var(--rs);font-size:13px;font-weight:700;cursor:pointer;
-            font-family:'Inter',sans-serif;transition:all .18s;margin-top:22px}
+            font-family:'Inter',sans-serif;transition:all .18s}
         .btn-calc:hover{background:#1d4ed8;transform:translateY(-1px)}
+
+        /* Resultado calculadora */
         .ftmo-result-box{background:var(--surface);border:1px solid var(--blue-b);
             border-radius:var(--rs);padding:16px 20px;margin-top:14px;display:none}
-        .ftmo-volume-num{font-size:32px;font-weight:800;color:var(--blue);letter-spacing:-1px}
+        .ftmo-vol-num{font-size:32px;font-weight:800;color:var(--blue);letter-spacing:-1px}
         .ftmo-vol-lbl{font-size:12px;color:var(--muted);margin-top:2px}
         .ftmo-details{display:flex;gap:20px;margin-top:10px;flex-wrap:wrap}
         .ftmo-detail{font-size:13px;color:var(--text2)}
         .ftmo-detail strong{color:var(--text);font-weight:700}
+
+        /* Alerta SL inválido */
+        .sl-error-box{background:#fff7ed;border:1px solid #fed7aa;border-radius:var(--rs);
+            padding:12px 16px;margin-top:12px;font-size:13px;color:#c2410c;font-weight:600;
+            display:none;align-items:flex-start;gap:8px}
+
+        /* Alerta earnings catastrófico */
         .earn-risk-alert{background:var(--red-bg);border:1px solid var(--red-b);
             border-radius:var(--rs);padding:12px 16px;margin-top:10px;
-            font-size:13px;color:var(--red);font-weight:700;display:flex;align-items:center;gap:8px}
+            font-size:13px;color:var(--red);font-weight:700;
+            display:flex;align-items:center;gap:8px}
 
-        /* ── ALERTAS ── */
+        /* ALERTAS generales */
         .alert{border-radius:var(--rs);padding:14px 18px;margin-bottom:14px;
             display:flex;align-items:flex-start;gap:12px}
         .alert-danger{background:var(--red-bg);border:1px solid var(--red-b)}
         .alert-warning{background:var(--amber-bg);border:1px solid var(--amber-b)}
-        .alert-info{background:var(--blue-bg);border:1px solid var(--blue-b)}
         .alert-title{font-size:14px;font-weight:700}
         .alert-danger .alert-title{color:var(--red)}
         .alert-warning .alert-title{color:var(--amber)}
-        .alert-info .alert-title{color:var(--blue)}
         .alert-sub{font-size:12px;color:var(--muted);margin-top:3px}
         .macro-bar{background:#fff7ed;border:1px solid #fed7aa;border-radius:var(--rs);
             padding:12px 16px;margin-bottom:16px;font-size:13px;color:#c2410c;
             font-weight:600;display:flex;align-items:center;gap:8px}
 
-        /* ── CONFIRM GRID ── */
+        /* CONFIRM GRID */
         .confirm-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(185px,1fr));
             gap:12px;margin-bottom:18px}
         .conf-card{background:var(--surface2);border:1px solid var(--border);
@@ -161,7 +170,7 @@
             letter-spacing:1px;font-weight:600;margin-bottom:6px}
         .conf-val{font-size:13px;font-weight:600;color:var(--text2)}
 
-        /* ── INFO SECTIONS ── */
+        /* INFO SECTIONS */
         .info-sec{background:var(--surface2);border:1px solid var(--border);
             border-radius:var(--rs);padding:16px 18px;margin-bottom:14px}
         .info-sec h3{font-size:11px;color:var(--muted);text-transform:uppercase;
@@ -187,7 +196,7 @@
         .wpts-neg{color:var(--red);font-weight:700}
         .no-sig{color:var(--muted);font-size:13px;font-style:italic}
 
-        /* ── NEWS ── */
+        /* NEWS */
         .news-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:10px}
         @media(max-width:768px){.news-grid{grid-template-columns:1fr}}
         .news-block h3{font-size:11px;font-weight:700;color:var(--muted);
@@ -202,7 +211,7 @@
         .ntxt{font-size:13px;color:var(--text2);line-height:1.5}
         .ndate{font-size:11px;color:var(--muted);margin-top:2px}
 
-        /* ── EARNINGS CALENDAR ── */
+        /* EARNINGS CALENDAR */
         .earn-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:12px}
         .earn-card{background:var(--surface);border:1.5px solid var(--border);
             border-radius:var(--r);padding:18px;box-shadow:var(--sh-sm);transition:all .18s}
@@ -212,20 +221,18 @@
         .earn-card.published{border-color:var(--green-b);background:var(--green-bg)}
         .earn-ticker{font-size:20px;font-weight:800}
         .earn-company{font-size:11px;color:var(--muted);margin:2px 0 12px}
-        .earn-date{font-size:13px;color:var(--text2);font-weight:500}
+        .earn-date-txt{font-size:13px;color:var(--text2);font-weight:500}
         .earn-time{font-size:11px;color:var(--muted);margin-top:3px}
-        .earn-days{display:inline-block;margin-top:8px;padding:4px 12px;
-            border-radius:20px;font-size:12px;font-weight:700}
+        .earn-days{display:inline-block;margin-top:8px;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:700}
         .bd-urgent{background:var(--amber-bg);color:var(--amber);border:1px solid var(--amber-b)}
         .bd-soon{background:#fef9c3;color:#a16207;border:1px solid #fde68a}
         .bd-normal{background:var(--neutral-bg);color:var(--neutral);border:1px solid var(--border)}
         .bd-published{background:var(--green-bg);color:var(--green);border:1px solid var(--green-b)}
-        .inv-link{font-size:11px;color:var(--blue);text-decoration:none;
-            display:inline-block;margin-top:8px;font-weight:500}
+        .inv-link{font-size:11px;color:var(--blue);text-decoration:none;display:inline-block;margin-top:8px;font-weight:500}
         .inv-link:hover{text-decoration:underline}
         .no-earn{font-size:12px;color:var(--muted);margin-top:8px;font-style:italic}
 
-        /* ── LEADERS DASHBOARD ── */
+        /* LEADERS */
         .leaders-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:12px}
         .leader-card{background:var(--surface);border:1.5px solid var(--border);
             border-radius:var(--r);padding:18px 14px;text-align:center;cursor:pointer;
@@ -235,12 +242,11 @@
         .lc-company{font-size:10px;color:var(--muted);margin-top:2px}
         .lc-prob{font-size:28px;font-weight:800;margin:10px 0 3px;letter-spacing:-1px}
         .lc-dir{font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase}
-        .lc-vol{font-size:10px;color:var(--amber);margin-top:4px;font-weight:600}
-        .lc-earn{font-size:10px;color:var(--amber);margin-top:3px;font-weight:600}
-        .lc-warn{font-size:10px;color:var(--red);margin-top:3px;font-weight:600}
-        .lc-weak{font-size:10px;color:var(--neutral);margin-top:3px;font-style:italic}
+        .lc-sub{font-size:10px;margin-top:4px;font-weight:600}
+        .lc-green{color:var(--green)} .lc-red{color:var(--red)}
+        .lc-amber{color:var(--amber)} .lc-neutral{color:var(--neutral);font-style:italic}
 
-        /* ── TRADES ── */
+        /* TRADES */
         .stats-row{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px}
         @media(max-width:600px){.stats-row{grid-template-columns:repeat(2,1fr)}}
         .stat-card{background:var(--surface);border:1.5px solid var(--border);
@@ -260,9 +266,9 @@
         .form-select{background:var(--surface2);border:1.5px solid var(--border);color:var(--text);
             padding:9px 13px;border-radius:var(--rs);font-size:13px;font-family:'Inter',sans-serif}
         .trades-list{display:flex;flex-direction:column;gap:8px}
-        .trade-row{background:var(--surface);border:1.5px solid var(--border);
-            border-radius:var(--rs);padding:14px 18px;display:flex;align-items:center;
-            justify-content:space-between;flex-wrap:wrap;gap:10px;box-shadow:var(--sh-sm);transition:all .18s}
+        .trade-row{background:var(--surface);border:1.5px solid var(--border);border-radius:var(--rs);
+            padding:14px 18px;display:flex;align-items:center;justify-content:space-between;
+            flex-wrap:wrap;gap:10px;box-shadow:var(--sh-sm);transition:all .18s}
         .trade-row:hover{box-shadow:var(--sh)}
         .trade-row.win{border-left:3px solid var(--green)}
         .trade-row.loss{border-left:3px solid var(--red)}
@@ -301,7 +307,7 @@
 
 <div class="container">
 
-    <!-- ── EARNINGS CALENDAR ── -->
+    <!-- EARNINGS CALENDAR -->
     <div class="section">
         <div class="sec-hdr">
             <h2>Earnings Calendar</h2>
@@ -312,7 +318,7 @@
         <div class="earn-grid" id="earningsGrid"></div>
     </div>
 
-    <!-- ── ANÁLISIS ── -->
+    <!-- ANÁLISIS DE GAP -->
     <div class="section">
         <div class="sec-hdr">
             <h2>Análisis de Gap</h2>
@@ -320,7 +326,6 @@
             <div class="sec-badge">Tiempo real</div>
         </div>
 
-        <!-- Search box (sin calculadora) -->
         <div class="search-box">
             <p>Introduce el ticker para analizar la probabilidad de gap mañana</p>
             <div class="search-row">
@@ -331,10 +336,9 @@
 
         <div class="loading" id="loadingSearch">Analizando noticias y mercado…</div>
 
-        <!-- Resultado -->
         <div class="result-card" id="resultCard">
 
-            <!-- Probabilidad principal -->
+            <!-- Probabilidad -->
             <div class="res-main">
                 <div>
                     <div class="res-ticker" id="resTicker"></div>
@@ -351,16 +355,21 @@
 
             <div class="divider"></div>
 
-            <!-- Acciones rápidas -->
+            <!-- Acciones -->
             <div class="res-actions">
                 <button class="btn-success" onclick="registerTrade('ALCISTA')">+ Registrar alcista</button>
                 <button class="btn-danger"  onclick="registerTrade('BAJISTA')">+ Registrar bajista</button>
             </div>
 
-            <!-- ══ CALCULADORA FTMO INTEGRADA ══ -->
-            <div class="ftmo-inline" id="ftmoBox">
+            <!-- CALCULADORA FTMO integrada -->
+            <div class="ftmo-inline">
                 <h3>🧮 Calculadora de Riesgo — 65 lotes fijos</h3>
-                <div class="ftmo-row">
+                <div class="ftmo-hint" id="ftmoHint">Introduce tu Stop Loss para calcular el riesgo monetario exacto</div>
+
+                <!-- Alerta earnings catastrófica (siempre visible si hay earnings) -->
+                <div id="earningsRiskAlert"></div>
+
+                <div class="ftmo-row" style="margin-top:12px">
                     <div class="ftmo-field">
                         <label>Tu Stop Loss Ideal ($)</label>
                         <input type="number" class="ftmo-input" id="ftmoSL"
@@ -369,26 +378,28 @@
                     <button class="btn-calc" onclick="calcRisk()">Calcular Riesgo</button>
                 </div>
 
-                <!-- Alerta earnings catastrófico (se muestra siempre si hay earnings) -->
-                <div id="earningsRiskAlert"></div>
+                <!-- Error de dirección SL -->
+                <div class="sl-error-box" id="slErrorBox">
+                    <span>⚠️</span><span id="slErrorMsg"></span>
+                </div>
 
-                <!-- Resultado del cálculo -->
+                <!-- Resultado -->
                 <div class="ftmo-result-box" id="ftmoResultBox">
-                    <div class="ftmo-volume-num" id="ftmoVol">65 <span style="font-size:16px;font-weight:600">lotes</span></div>
+                    <div class="ftmo-vol-num">65 <span style="font-size:16px;font-weight:600">lotes</span></div>
                     <div class="ftmo-vol-lbl">Volumen fijo MetaTrader 5</div>
                     <div class="ftmo-details" id="ftmoDetails"></div>
                 </div>
             </div>
 
-            <!-- Alertas de mercado -->
+            <!-- Alertas mercado -->
             <div id="newsRestrBox"></div>
             <div id="futWarnBox"></div>
             <div id="fakeoutBox"></div>
 
-            <!-- Confirmación de mercado -->
+            <!-- Confirmación -->
             <div class="confirm-grid" id="confirmGrid"></div>
 
-            <!-- Secciones de datos -->
+            <!-- Datos -->
             <div class="info-sec" id="volSection"></div>
             <div class="info-sec" id="socSection"></div>
             <div class="info-sec" id="whaleSection"></div>
@@ -398,7 +409,7 @@
         </div>
     </div>
 
-    <!-- ── MARKET LEADERS ── -->
+    <!-- MARKET LEADERS -->
     <div class="section">
         <div class="sec-hdr">
             <h2>Market Leaders</h2>
@@ -409,7 +420,7 @@
         <div class="leaders-grid" id="dashGrid"></div>
     </div>
 
-    <!-- ── REGISTRO OPERACIONES ── -->
+    <!-- REGISTRO OPERACIONES -->
     <div class="section">
         <div class="sec-hdr">
             <h2>Registro de Operaciones</h2>
@@ -430,25 +441,21 @@
                     <option value="ALCISTA">↑ Alcista</option>
                     <option value="BAJISTA">↓ Bajista</option>
                 </select>
-                <input type="number" class="form-input"  id="trProb"   placeholder="% prob"  style="width:90px">
-                <input type="text"   class="form-input"  id="trNotes"  placeholder="Notas opcionales" style="width:200px">
+                <input type="number" class="form-input"  id="trProb"  placeholder="% prob"  style="width:90px">
+                <input type="text"   class="form-input"  id="trNotes" placeholder="Notas opcionales" style="width:200px">
                 <button class="btn-primary" onclick="addTrade()" style="padding:9px 20px;font-size:13px">Añadir</button>
             </div>
         </div>
         <div class="trades-list" id="tradesList"></div>
     </div>
 
-</div><!-- /container -->
+</div>
 
 <script>
-/* ═══════════════════════════════════════════════
-   ESTADO GLOBAL
-═══════════════════════════════════════════════ */
-let currentData = null;   // último análisis recibido
+/* ─── ESTADO ─────────────────────────────────── */
+let currentData = null;
 
-/* ═══════════════════════════════════════════════
-   RELOJ
-═══════════════════════════════════════════════ */
+/* ─── RELOJ ──────────────────────────────────── */
 function updateTime(){
     document.getElementById('timeDisplay').textContent =
         new Date().toLocaleDateString('es-ES',
@@ -456,40 +463,36 @@ function updateTime(){
 }
 updateTime(); setInterval(updateTime,60000);
 
-/* ═══════════════════════════════════════════════
-   HELPERS
-═══════════════════════════════════════════════ */
 function sc(s){ return s>0.05?'positive':s<-0.05?'negative':'neutral'; }
 function fmt(n){ return Number(n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}); }
-const NAMES = {AAPL:'Apple',MSFT:'Microsoft',GOOGL:'Google',AMZN:'Amazon',
-               NVDA:'Nvidia',META:'Meta',TSLA:'Tesla',NFLX:'Netflix',RACE:'Ferrari'};
+const NAMES={AAPL:'Apple',MSFT:'Microsoft',GOOGL:'Google',AMZN:'Amazon',
+             NVDA:'Nvidia',META:'Meta',TSLA:'Tesla',NFLX:'Netflix',RACE:'Ferrari'};
 
-/* ═══════════════════════════════════════════════
-   EARNINGS CALENDAR
-═══════════════════════════════════════════════ */
+/* ─── EARNINGS CALENDAR ──────────────────────── */
 async function loadEarnings(){
     document.getElementById('loadingEarnings').style.display='block';
     try{
-        const data = await (await fetch('/earnings_calendar')).json();
+        const data = await(await fetch('/earnings_calendar')).json();
         const grid = document.getElementById('earningsGrid');
         grid.innerHTML='';
         data.forEach(item=>{
-            const pub   = item.status==='published';
-            const uc    = pub?'published':item.days_to_earnings<=3?'urgent':item.days_to_earnings<=7?'soon':'';
-            const card  = document.createElement('div');
+            const pub  = item.status==='published';
+            const uc   = pub?'published':item.days_to_earnings<=3?'urgent':item.days_to_earnings<=7?'soon':'';
+            const card = document.createElement('div');
             card.className=`earn-card ${uc}`;
             let body='';
             if(item.has_earnings){
                 let bc,dt;
-                if(pub){                               dt=`Publicado hace ${Math.abs(item.days_to_earnings)}d ✓`; bc='bd-published';}
-                else if(item.days_to_earnings<=0){     dt='HOY 🔥';                                              bc='bd-urgent';}
-                else if(item.days_to_earnings<=3){     dt=`En ${item.days_to_earnings}d 🔥`;                     bc='bd-urgent';}
-                else if(item.days_to_earnings<=7){     dt=`En ${item.days_to_earnings}d ⚠️`;                    bc='bd-soon';}
-                else{                                  dt=`En ${item.days_to_earnings}d`;                        bc='bd-normal';}
+                const daysAbs = Math.abs(item.days_to_earnings);
+                if(pub){                               dt=`Publicado hace ${daysAbs}d ✓`;    bc='bd-published';}
+                else if(item.days_to_earnings<=0){     dt='HOY 🔥';                          bc='bd-urgent';}
+                else if(item.days_to_earnings<=3){     dt=`En ${item.days_to_earnings}d 🔥`; bc='bd-urgent';}
+                else if(item.days_to_earnings<=7){     dt=`En ${item.days_to_earnings}d ⚠️`;bc='bd-soon';}
+                else{                                  dt=`En ${item.days_to_earnings}d`;    bc='bd-normal';}
                 const timeH = item.earnings_time?`<div class="earn-time">🕙 ${item.earnings_time}</div>`:'';
                 const linkH = item.investor_url?`<a class="inv-link" href="${item.investor_url}" target="_blank">→ Investor Relations</a>`:'';
-                body=`<div class="earn-date">${item.earnings_date||'—'}</div>${timeH}<div class="earn-days ${bc}">${dt}</div>${linkH}`;
-            } else {
+                body=`<div class="earn-date-txt">${item.earnings_date||'—'}</div>${timeH}<div class="earn-days ${bc}">${dt}</div>${linkH}`;
+            }else{
                 body='<div class="no-earn">Sin fecha confirmada</div>';
             }
             card.innerHTML=`<div class="earn-ticker">${item.ticker}</div><div class="earn-company">${item.company}</div>${body}`;
@@ -499,110 +502,119 @@ async function loadEarnings(){
     document.getElementById('loadingEarnings').style.display='none';
 }
 
-/* ═══════════════════════════════════════════════
-   ANALIZAR ACCIÓN
-═══════════════════════════════════════════════ */
+/* ─── ANALIZAR ───────────────────────────────── */
 async function analyzeStock(){
     const ticker = document.getElementById('tickerInput').value.trim().toUpperCase();
     if(!ticker) return;
-    document.getElementById('loadingSearch').style.display='block';
-    document.getElementById('resultCard').style.display='none';
-    document.getElementById('ftmoResultBox').style.display='none';
+    // Reset calculadora
     document.getElementById('ftmoSL').value='';
+    document.getElementById('ftmoResultBox').style.display='none';
+    document.getElementById('slErrorBox').style.display='none';
     document.getElementById('earningsRiskAlert').innerHTML='';
 
+    document.getElementById('loadingSearch').style.display='block';
+    document.getElementById('resultCard').style.display='none';
     try{
-        const data = await (await fetch('/analyze',{
-            method:'POST',
-            headers:{'Content-Type':'application/json'},
-            body: JSON.stringify({ticker})
+        const data=await(await fetch('/analyze',{
+            method:'POST',headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({ticker})
         })).json();
-        currentData = data;
+        currentData=data;
         renderResult(data);
-    }catch(e){ alert('Error al analizar. Inténtalo de nuevo.'); }
+    }catch(e){alert('Error al analizar. Inténtalo de nuevo.');}
     document.getElementById('loadingSearch').style.display='none';
 }
 
-/* ═══════════════════════════════════════════════
-   CALCULAR RIESGO (botón dentro del resultado)
-═══════════════════════════════════════════════ */
+/* ─── CALCULAR RIESGO ────────────────────────── */
 async function calcRisk(){
-    if(!currentData) return;
-    const sl = document.getElementById('ftmoSL').value;
-    if(!sl){ alert('Introduce tu Stop Loss ideal.'); return; }
+    if(!currentData){return;}
+    const sl=document.getElementById('ftmoSL').value;
+    if(!sl){alert('Introduce tu Stop Loss ideal.');return;}
+
+    // Ocultar resultados anteriores
+    document.getElementById('ftmoResultBox').style.display='none';
+    document.getElementById('slErrorBox').style.display='none';
 
     try{
-        const data = await (await fetch('/analyze',{
-            method:'POST',
-            headers:{'Content-Type':'application/json'},
-            body: JSON.stringify({ticker: currentData.ticker, stop_loss_price: parseFloat(sl)})
+        const data=await(await fetch('/analyze',{
+            method:'POST',headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({ticker:currentData.ticker, stop_loss_price:parseFloat(sl)})
         })).json();
-        currentData = data;   // actualizar con nuevo ftmo
+        currentData=data;
         renderFtmoResult(data);
-    }catch(e){ alert('Error al calcular riesgo.'); }
+        renderEarningsRiskAlert(data);
+    }catch(e){alert('Error al calcular riesgo.');}
 }
 
-/* ═══════════════════════════════════════════════
-   RENDER RESULTADO PRINCIPAL
-═══════════════════════════════════════════════ */
+/* ─── RENDER RESULTADO PRINCIPAL ─────────────── */
 function renderResult(d){
-    const strength = d.strength||'weak';
-    const isBull   = strength==='strong_bullish';
-    const isBear   = strength==='strong_bearish';
+    const strength=d.strength||'weak';
 
-    // Cabecera
-    document.getElementById('resTicker').textContent = d.ticker;
-    document.getElementById('resPrice').textContent  = d.current_price ? `$${fmt(d.current_price)}` : '';
-    document.getElementById('resProb').textContent   = d.probability+'%';
-    document.getElementById('resProb').className     = `res-prob c-${d.signal_color}`;
-    document.getElementById('resDir').textContent    = d.direction;
-    document.getElementById('resDir').className      = `res-dir c-${d.signal_color}`;
+    document.getElementById('resTicker').textContent=d.ticker;
+    document.getElementById('resPrice').textContent=d.current_price?`$${fmt(d.current_price)}`:'';
+    document.getElementById('resProb').textContent=d.probability+'%';
+    document.getElementById('resProb').className=`res-prob c-${d.signal_color}`;
+    document.getElementById('resDir').textContent=d.direction;
+    document.getElementById('resDir').className=`res-dir c-${d.signal_color}`;
 
-    const bmap = {strong_bullish:'sb-bullish',strong_bearish:'sb-bearish',weak:'sb-weak'};
-    const btxt = {strong_bullish:'Señal Fuerte ✓',strong_bearish:'Señal Fuerte ✓',weak:'Señal Débil — No Operar'};
-    document.getElementById('resBadge').innerHTML =
+    const bmap={strong_bullish:'sb-bullish',strong_bearish:'sb-bearish',weak:'sb-weak'};
+    const btxt={strong_bullish:'Señal Fuerte ✓',strong_bearish:'Señal Fuerte ✓',weak:'Señal Débil — No Operar'};
+    document.getElementById('resBadge').innerHTML=
         `<span class="strength-badge ${bmap[strength]}">${btxt[strength]}</span>`;
 
     // Earnings pill
-    const ered = document.getElementById('resEarnings');
-    if(d.earnings?.has_earnings && d.earnings.days_to_earnings<=14){
-        const dstr = d.earnings.status==='published'
-            ? `Publicado hace ${Math.abs(d.earnings.days_to_earnings)}d`
-            : `Earnings en ${d.earnings.days_to_earnings}d`;
-        ered.innerHTML=`<div class="earn-pill">📅 ${dstr} · ${d.earnings.earnings_date}</div>`;
-    } else { ered.innerHTML=''; }
+    const ered=document.getElementById('resEarnings');
+    if(d.earnings?.has_earnings && d.earnings.days_to_earnings<=30){
+        const pub=d.earnings.status==='published';
+        const dstr=pub
+            ?`Publicado hace ${Math.abs(d.earnings.days_to_earnings)}d ✓`
+            :`Earnings en ${d.earnings.days_to_earnings}d`;
+        const cls=pub?'earn-pill published':'earn-pill';
+        ered.innerHTML=`<div class="${cls}">📅 ${dstr} · ${d.earnings.earnings_date}</div>`;
+    }else{ered.innerHTML='';}
 
-    // Alerta catastrófica earnings (siempre visible si corresponde)
+    // Hint de calculadora según dirección
+    const hint=document.getElementById('ftmoHint');
+    if(d.raw_direction==='ALCISTA'){
+        hint.textContent='📍 Señal ALCISTA: pon tu Stop Loss por DEBAJO del precio actual ($'+(d.current_price?fmt(d.current_price):'—')+')';
+        hint.style.color='var(--green)';
+    }else if(d.raw_direction==='BAJISTA'){
+        hint.textContent='📍 Señal BAJISTA: pon tu Stop Loss por ENCIMA del precio actual ($'+(d.current_price?fmt(d.current_price):'—')+')';
+        hint.style.color='var(--red)';
+    }else{
+        hint.textContent='Introduce tu Stop Loss para calcular el riesgo monetario exacto';
+        hint.style.color='';
+    }
+
+    // Alerta earnings catastrófica
     renderEarningsRiskAlert(d);
 
     // Restricción macro
-    const nrb = document.getElementById('newsRestrBox');
-    nrb.innerHTML = d.news_restriction
-        ? `<div class="macro-bar">📰 ${d.news_restriction_reason||'Evento macro detectado'} — Alta volatilidad esperada. Opera con precaución.</div>`
-        : '';
+    document.getElementById('newsRestrBox').innerHTML=d.news_restriction
+        ?`<div class="macro-bar">📰 ${d.news_restriction_reason||'Evento macro detectado'} — Alta volatilidad esperada.</div>`:'';
 
-    // Alerta futuros
-    const fwb = document.getElementById('futWarnBox');
+    // Contradicción futuros
+    const fwb=document.getElementById('futWarnBox');
     if(d.futures_warning){
-        const nd = d.futures_change<0?'cayendo':'subiendo';
+        const nd=d.futures_change<0?'cayendo':'subiendo';
         fwb.innerHTML=`<div class="alert alert-danger">
             <div style="font-size:22px">⚠️</div>
             <div><div class="alert-title">Contradicción con ${d.index_name}: ${nd} ${d.futures_change}%</div>
             <div class="alert-sub">El índice puede absorber el gap. Reduce posición o espera confirmación.</div></div>
         </div>`;
-    } else { fwb.innerHTML=''; }
+    }else{fwb.innerHTML='';}
 
-    // Alerta fakeout
-    const fob = document.getElementById('fakeoutBox');
+    // Fakeout
+    const fob=document.getElementById('fakeoutBox');
     if(d.is_fakeout){
         fob.innerHTML=`<div class="alert alert-warning">
             <div style="font-size:22px">🎭</div>
             <div><div class="alert-title">Riesgo de Fakeout · RSI ${d.rsi_value}</div>
             <div class="alert-sub">${d.fakeout_reason} — El precio puede abrir con gap y revertirse</div></div>
         </div>`;
-    } else { fob.innerHTML=''; }
+    }else{fob.innerHTML='';}
 
-    // Confirmación de mercado
+    // Confirm grid
     let ch='';
     if(d.futures_signal) ch+=`<div class="conf-card"><div class="conf-lbl">${d.index_name} 30min</div><div class="conf-val">${d.futures_signal}</div></div>`;
     if(d.sector_info)    ch+=`<div class="conf-card"><div class="conf-lbl">Par Sectorial (${d.sector_info.ticker})</div><div class="conf-val">${d.sector_info.signal} ${d.sector_info.change>0?'+':''}${d.sector_info.change}%</div></div>`;
@@ -649,20 +661,20 @@ function renderResult(d){
             wh+=`<div class="whale-row"><span>${w.signal} · <span style="font-size:12px;color:var(--muted)">${w.detail}</span></span>
                  <span class="${w.points>0?'wpts-pos':'wpts-neg'}">${w.points>0?'+':''}${w.points}pts</span></div>`;
         });
-        wh+=`<div style="margin-top:10px;font-size:12px;color:var(--muted)">Score total: <strong style="color:${d.whale_score>=0?'var(--green)':'var(--red)'}">${d.whale_score>0?'+':''}${d.whale_score}</strong></div>`;
-    } else { wh+='<div class="no-sig">Sin señales de ballenas detectadas hoy</div>'; }
+        wh+=`<div style="margin-top:10px;font-size:12px;color:var(--muted)">Score: <strong style="color:${d.whale_score>=0?'var(--green)':'var(--red)'}">${d.whale_score>0?'+':''}${d.whale_score}</strong></div>`;
+    }else{wh+='<div class="no-sig">Sin señales de ballenas detectadas hoy</div>';}
     document.getElementById('whaleSection').innerHTML=wh;
 
     // Noticias
     let nh='';
     if(d.news?.length){
         nh+='<div class="news-block"><h3>Noticias de la acción</h3>';
-        d.news.forEach(n=>{ nh+=`<div class="news-item"><div class="ndot ${sc(n.sentiment)}"></div><div><div class="ntxt">${n.title}</div><div class="ndate">${n.published}</div></div></div>`; });
+        d.news.forEach(n=>{nh+=`<div class="news-item"><div class="ndot ${sc(n.sentiment)}"></div><div><div class="ntxt">${n.title}</div><div class="ndate">${n.published}</div></div></div>`;});
         nh+='</div>';
     }
     if(d.macro_news?.length){
         nh+='<div class="news-block"><h3>Macro · Fed · Trump</h3>';
-        d.macro_news.forEach(n=>{ nh+=`<div class="news-item"><div class="ndot ${sc(n.sentiment)}"></div><div><div class="ntxt">${n.title}</div><div class="ndate">${n.published}</div></div></div>`; });
+        d.macro_news.forEach(n=>{nh+=`<div class="news-item"><div class="ndot ${sc(n.sentiment)}"></div><div><div class="ntxt">${n.title}</div><div class="ndate">${n.published}</div></div></div>`;});
         nh+='</div>';
     }
     document.getElementById('newsSection').innerHTML=nh;
@@ -670,84 +682,91 @@ function renderResult(d){
     document.getElementById('resultCard').style.display='block';
 }
 
-/* ═══════════════════════════════════════════════
-   ALERTA EARNINGS CATASTRÓFICO
-═══════════════════════════════════════════════ */
+/* ─── ALERTA EARNINGS CATASTRÓFICA ───────────── */
 function renderEarningsRiskAlert(d){
-    const box = document.getElementById('earningsRiskAlert');
+    const box=document.getElementById('earningsRiskAlert');
     if(d.ftmo?.earnings_alert){
         box.innerHTML=`<div class="earn-risk-alert">💀 ${d.ftmo.earnings_alert}</div>`;
-    } else { box.innerHTML=''; }
+    }else{box.innerHTML='';}
 }
 
-/* ═══════════════════════════════════════════════
-   RENDER RESULTADO CALCULADORA FTMO
-═══════════════════════════════════════════════ */
+/* ─── RENDER CALCULADORA FTMO ────────────────── */
 function renderFtmoResult(d){
-    const f = d.ftmo||{};
-    if(!f.risk_cash && f.risk_cash!==0) return;
+    const f=d.ftmo||{};
+    const errBox=document.getElementById('slErrorBox');
+    const resBox=document.getElementById('ftmoResultBox');
+    const detBox=document.getElementById('ftmoDetails');
 
-    const rb = document.getElementById('ftmoResultBox');
-    const det = document.getElementById('ftmoDetails');
+    // Error de dirección
+    if(f.sl_error){
+        errBox.style.display='flex';
+        document.getElementById('slErrorMsg').textContent=f.sl_error;
+        resBox.style.display='none';
+        return;
+    }
+    errBox.style.display='none';
 
-    det.innerHTML=`
+    if(f.risk_cash==null) return;
+
+    detBox.innerHTML=`
         <div class="ftmo-detail">Riesgo asumido: <strong style="color:var(--red)">$${fmt(f.risk_cash)}</strong></div>
-        <div class="ftmo-detail">Volumen fijo: <strong>65 lotes</strong></div>
-        <div class="ftmo-detail">Precio actual: <strong>$${d.current_price?fmt(d.current_price):'—'}</strong></div>`;
+        <div class="ftmo-detail">Precio actual: <strong>$${d.current_price?fmt(d.current_price):'—'}</strong></div>
+        <div class="ftmo-detail">Volumen: <strong>65 lotes</strong></div>`;
 
-    rb.style.display='block';
-
-    // También actualizar la alerta catastrófica
-    renderEarningsRiskAlert(d);
+    resBox.style.display='block';
 }
 
-/* ═══════════════════════════════════════════════
-   DASHBOARD MARKET LEADERS
-═══════════════════════════════════════════════ */
+/* ─── DASHBOARD ──────────────────────────────── */
 async function loadDashboard(){
     document.getElementById('loadingDash').style.display='block';
     document.getElementById('dashGrid').innerHTML='';
     try{
-        const data = await (await fetch('/dashboard')).json();
+        const data=await(await fetch('/dashboard')).json();
         data.forEach(s=>{
-            const card = document.createElement('div');
+            const card=document.createElement('div');
             card.className='leader-card';
-            card.onclick=()=>{ document.getElementById('tickerInput').value=s.ticker; analyzeStock(); window.scrollTo(0,300); };
+            card.onclick=()=>{document.getElementById('tickerInput').value=s.ticker;analyzeStock();window.scrollTo(0,300);};
             const v=s.volume||{};
+            const pub=s.earnings?.status==='published';
             card.innerHTML=`
                 <div class="lc-ticker">${s.ticker}</div>
                 <div class="lc-company">${NAMES[s.ticker]||s.ticker}</div>
                 <div class="lc-prob c-${s.signal_color}">${s.probability}%</div>
                 <div class="lc-dir  c-${s.signal_color}">${s.direction}</div>
-                ${v.anomaly?`<div class="lc-vol">⚡ RVOL ${v.rvol}x</div>`:''}
-                ${s.earnings?.has_earnings&&s.earnings.days_to_earnings<=14?`<div class="lc-earn">📅 Earnings ${s.earnings.days_to_earnings}d</div>`:''}
-                ${s.futures_warning?'<div class="lc-warn">⚠️ Índice contradicción</div>':''}
-                ${s.strength==='weak'?'<div class="lc-weak">Indeciso</div>':''}`;
+                ${v.anomaly?`<div class="lc-sub lc-amber">⚡ RVOL ${v.rvol}x</div>`:''}
+                ${s.earnings?.has_earnings&&s.earnings.days_to_earnings<=30
+                    ?(pub
+                        ?`<div class="lc-sub lc-green">✓ Earnings publicado</div>`
+                        :`<div class="lc-sub lc-amber">📅 Earnings ${s.earnings.days_to_earnings}d</div>`)
+                    :''}
+                ${s.futures_warning?'<div class="lc-sub lc-red">⚠️ Índice contradicción</div>':''}
+                ${s.strength==='weak'?'<div class="lc-sub lc-neutral">Indeciso</div>':''}`;
             document.getElementById('dashGrid').appendChild(card);
         });
     }catch(e){console.error(e);}
     document.getElementById('loadingDash').style.display='none';
 }
 
-/* ═══════════════════════════════════════════════
-   REGISTRO OPERACIONES
-═══════════════════════════════════════════════ */
+/* ─── TRADES ─────────────────────────────────── */
 function registerTrade(direction){
     if(!currentData) return;
-    document.getElementById('trTicker').value = currentData.ticker;
-    document.getElementById('trPred').value   = direction;
-    document.getElementById('trProb').value   = currentData.probability;
+    document.getElementById('trTicker').value=currentData.ticker;
+    document.getElementById('trPred').value=direction;
+    document.getElementById('trProb').value=currentData.probability;
     window.scrollTo(0,document.body.scrollHeight);
 }
 
 async function addTrade(){
-    const ticker     = document.getElementById('trTicker').value.trim().toUpperCase();
-    const prediction = document.getElementById('trPred').value;
-    const probability= document.getElementById('trProb').value;
-    const notes      = document.getElementById('trNotes').value;
-    if(!ticker){ alert('Introduce el ticker'); return; }
+    const ticker=document.getElementById('trTicker').value.trim().toUpperCase();
+    if(!ticker){alert('Introduce el ticker');return;}
     await fetch('/trades',{method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({ticker,prediction,probability,notes,result:'pending'})});
+        body:JSON.stringify({
+            ticker,
+            prediction:document.getElementById('trPred').value,
+            probability:document.getElementById('trProb').value,
+            notes:document.getElementById('trNotes').value,
+            result:'pending'
+        })});
     document.getElementById('trTicker').value='';
     document.getElementById('trProb').value='';
     document.getElementById('trNotes').value='';
@@ -768,31 +787,32 @@ async function deleteTrade(id){
 
 async function loadTrades(){
     try{
-        const trades = await (await fetch('/trades')).json();
-        const wins   = trades.filter(t=>t.result==='win').length;
-        const losses = trades.filter(t=>t.result==='loss').length;
-        const closed = wins+losses;
-        const acc    = closed>0?Math.round((wins/closed)*100):0;
-        document.getElementById('stTotal').textContent  = trades.length;
-        document.getElementById('stWins').textContent   = wins;
-        document.getElementById('stLosses').textContent = losses;
-        document.getElementById('stAcc').textContent    = closed>0?acc+'%':'—';
-        document.getElementById('accBadge').textContent = closed>0?acc+'% precisión':'Sin datos aún';
-        const list = document.getElementById('tradesList');
-        if(!trades.length){ list.innerHTML='<div class="no-trades">No hay operaciones registradas aún</div>'; return; }
+        const trades=await(await fetch('/trades')).json();
+        const wins  =trades.filter(t=>t.result==='win').length;
+        const losses=trades.filter(t=>t.result==='loss').length;
+        const closed=wins+losses;
+        const acc   =closed>0?Math.round((wins/closed)*100):0;
+        document.getElementById('stTotal').textContent=trades.length;
+        document.getElementById('stWins').textContent=wins;
+        document.getElementById('stLosses').textContent=losses;
+        document.getElementById('stAcc').textContent=closed>0?acc+'%':'—';
+        document.getElementById('accBadge').textContent=closed>0?acc+'% precisión':'Sin datos aún';
+        const list=document.getElementById('tradesList');
+        if(!trades.length){list.innerHTML='<div class="no-trades">No hay operaciones registradas aún</div>';return;}
         list.innerHTML='';
         [...trades].reverse().forEach(t=>{
-            const el  = document.createElement('div');
+            const el=document.createElement('div');
             el.className=`trade-row ${t.result}`;
-            const pc  = t.prediction==='ALCISTA'?'c-bullish':'c-bearish';
-            const pi  = t.prediction==='ALCISTA'?'↑':'↓';
-            const rp  = t.result==='win'?'<span class="rpill pill-win">Acierto</span>'
-                       :t.result==='loss'?'<span class="rpill pill-loss">Fallo</span>'
-                       :'<span class="rpill pill-pend">Pendiente</span>';
-            const ab  = t.result==='pending'
+            const pc=t.prediction==='ALCISTA'?'c-bullish':'c-bearish';
+            const pi=t.prediction==='ALCISTA'?'↑':'↓';
+            const rp=t.result==='win'?'<span class="rpill pill-win">Acierto</span>'
+                    :t.result==='loss'?'<span class="rpill pill-loss">Fallo</span>'
+                    :'<span class="rpill pill-pend">Pendiente</span>';
+            const ab=t.result==='pending'
                 ?`<button class="btn-success" style="padding:5px 10px;font-size:12px" onclick="updateResult(${t.id},'win')">✓</button>
                   <button class="btn-danger"  style="padding:5px 10px;font-size:12px" onclick="updateResult(${t.id},'loss')">✗</button>`:'';
-            el.innerHTML=`<div class="tr-tag">${t.ticker}</div>
+            el.innerHTML=`
+                <div class="tr-tag">${t.ticker}</div>
                 <div class="tr-meta">
                     <div class="tr-pred ${pc}">${pi} ${t.prediction} · ${t.probability}%</div>
                     <div class="tr-info">${t.date}${t.notes?' · '+t.notes:''}</div>
@@ -803,13 +823,9 @@ async function loadTrades(){
     }catch(e){}
 }
 
-/* ── ENTER en el input ── */
-document.getElementById('tickerInput').addEventListener('keypress',e=>{ if(e.key==='Enter') analyzeStock(); });
-
-/* ── ENTER en Stop Loss ── */
-document.getElementById('ftmoSL').addEventListener('keypress',e=>{ if(e.key==='Enter') calcRisk(); });
-
-/* ── INIT ── */
+/* ─── INIT ───────────────────────────────────── */
+document.getElementById('tickerInput').addEventListener('keypress',e=>{if(e.key==='Enter')analyzeStock();});
+document.getElementById('ftmoSL').addEventListener('keypress',e=>{if(e.key==='Enter')calcRisk();});
 loadEarnings();
 loadDashboard();
 loadTrades();
