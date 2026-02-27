@@ -503,7 +503,7 @@ def get_gap_room(ticker):
 
 def get_historical_gap_stats(ticker):
     try:
-        hist = yf.Ticker(ticker).history(period='5y')
+        hist = yf.Ticker(ticker).history(period='1y')
         if hist.empty:
             return 50
         up = down = 0
@@ -565,15 +565,15 @@ def get_ftmo_signal(probability, raw_direction, futures_warning,
     # Cuántas veces este ticker ha abierto con gap alcista en 5 años
     if raw_direction == 'ALCISTA':
         if hist_pct >= 55:
-            favor.append(f'Histórico 5 años favorable — {hist_pct}% de días abre con gap alcista')
+            favor.append(f'Histórico 1 año favorable — {hist_pct}% de días abre con gap alcista (último año)')
         else:
-            contra.append(f'Histórico 5 años desfavorable — solo {hist_pct}% de días abre con gap alcista')
+            contra.append(f'Histórico 1 año desfavorable — solo {hist_pct}% de días abre con gap alcista (último año)')
     else:
         bearish_pct = 100 - hist_pct
         if bearish_pct >= 55:
-            favor.append(f'Histórico 5 años favorable — {bearish_pct}% de días abre con gap bajista')
+            favor.append(f'Histórico 1 año favorable — {bearish_pct}% de días abre con gap bajista (último año)')
         else:
-            contra.append(f'Histórico 5 años desfavorable — solo {bearish_pct}% de días abre con gap bajista')
+            contra.append(f'Histórico 1 año desfavorable — solo {bearish_pct}% de días abre con gap bajista (último año)')
 
     # ── 2. OVERNIGHT DRIFT ────────────────────────────────────────
     # Tendencia media de apertura vs cierre anterior en 20 días
