@@ -538,6 +538,11 @@ def get_ftmo_signal(probability, raw_direction, futures_warning,
     favor  = []
     contra = []
 
+    # ── 0. FUERZA GENERAL DE LA SEÑAL ─────────────────────────────
+    # Si la probabilidad combinada es baja, aviso explícito antes de todo
+    if probability < 60:
+        contra.append(f'⚠️ Señal débil ({probability}%) — el mercado no tiene dirección clara hoy')
+
     # ── 1. HISTÓRICO DE GAPS 5 AÑOS ───────────────────────────────
     # Cuántas veces este ticker ha abierto con gap alcista en 5 años
     if raw_direction == 'ALCISTA':
@@ -643,6 +648,11 @@ def get_ftmo_signal(probability, raw_direction, futures_warning,
         color  = 'red'
         titulo = '🔴 NO OPERAR HOY'
         desc   = 'Condición de riesgo extremo activa. Protege el drawdown.'
+    elif probability < 60:
+        # Señal débil — nunca verde aunque haya señales a favor
+        color  = 'yellow'
+        titulo = '🟡 CUIDADO — Señal con poca fuerza'
+        desc   = f'Probabilidad {probability}% — por debajo del umbral mínimo. Si operas, tamaño mínimo.'
     elif n_favor >= 6 and n_contra <= 1:
         color  = 'green'
         titulo = '🟢 SEÑAL CLARA — OPERAR'
