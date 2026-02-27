@@ -527,101 +527,141 @@ def get_technical_score(ticker):
 # ═══════════════════════════════════════════════════════════════════
 def get_ftmo_signal(probability, raw_direction, futures_warning,
                     is_fakeout, near_resistance, earnings_days,
-                    sec_score, whale_score, vol_score, macro_event):
+                    sec_score, whale_score, vol_score, macro_event,
+                    drift_trend, drift_avg, hist_pct, rsi_val,
+                    fut_signal, fut_change, index_name,
+                    vol_signal, rvol):
     """
-    Calcula el semáforo FTMO contando señales a favor y en contra.
-    Devuelve: color (green/yellow/red), título, descripción, señales_favor, señales_contra
+    Semáforo FTMO con etiquetas específicas y descriptivas en cada señal.
+    Verde: opera. Amarillo: reduce tamaño. Rojo: no operar.
     """
-    favor   = []
-    contra  = []
+    favor  = []
+    contra = []
 
-    # 1. Probabilidad base
-    if probability >= 68:
-        favor.append(f'Prob. histórica alta ({probability}%)')
-    elif probability >= 60:
-        favor.append(f'Prob. histórica moderada ({probability}%)')
+    # ── 1. HISTÓRICO DE GAPS 5 AÑOS ───────────────────────────────
+    # Cuántas veces este ticker ha abierto con gap alcista en 5 años
+    if raw_direction == 'ALCISTA':
+        if hist_pct >= 55:
+            favor.append(f'Histórico 5 años favorable — {hist_pct}% de días abre con gap alcista')
+        else:
+            contra.append(f'Histórico 5 años desfavorable — solo {hist_pct}% de días abre con gap alcista')
     else:
-        contra.append(f'Prob. histórica baja ({probability}%)')
+        bearish_pct = 100 - hist_pct
+        if bearish_pct >= 55:
+            favor.append(f'Histórico 5 años favorable — {bearish_pct}% de días abre con gap bajista')
+        else:
+            contra.append(f'Histórico 5 años desfavorable — solo {bearish_pct}% de días abre con gap bajista')
 
-    # 2. Futuros del índice
+    # ── 2. OVERNIGHT DRIFT ────────────────────────────────────────
+    # Tendencia media de apertura vs cierre anterior en 20 días
+    if raw_direction == 'ALCISTA':
+        if drift_trend == 'alcista':
+            favor.append(f'Overnight drift alcista — media +{drift_avg}% últimos 20 días')
+        elif drift_trend == 'bajista':
+            contra.append(f'Overnight drift bajista — media {drift_avg}% últimos 20 días')
+        else:
+            favor.append(f'Overnight drift neutral ({drift_avg}%) — sin sesgo claro')
+    else:
+        if drift_trend == 'bajista':
+            favor.append(f'Overnight drift bajista — media {drift_avg}% últimos 20 días')
+        elif drift_trend == 'alcista':
+            contra.append(f'Overnight drift alcista — media +{drift_avg}% (contra dirección bajista)')
+        else:
+            favor.append(f'Overnight drift neutral ({drift_avg}%) — sin sesgo claro')
+
+    # ── 3. ÍNDICE (QQQ / SPY) ─────────────────────────────────────
+    sign = '+' if fut_change > 0 else ''
     if not futures_warning:
-        favor.append('Índice alineado con dirección')
+        favor.append(f'{index_name} alineado — {sign}{fut_change}% en últimos 30min')
     else:
-        contra.append('⚠️ Índice CONTRADICE la dirección')
+        contra.append(f'⚠️ {index_name} CONTRADICE la dirección ({sign}{fut_change}%) — riesgo de absorción')
 
-    # 3. Fakeout / RSI extremo
+    # ── 4. RSI + FAKEOUT ──────────────────────────────────────────
     if is_fakeout:
-        contra.append('⚠️ RSI extremo — riesgo de fakeout')
+        contra.append(f'⚠️ RSI {rsi_val} — zona extrema, gap puede revertirse (fakeout)')
+    elif rsi_val > 60:
+        favor.append(f'RSI {rsi_val} — momentum alcista, zona operable')
+    elif rsi_val < 40:
+        favor.append(f'RSI {rsi_val} — momentum bajista, zona operable')
     else:
-        favor.append('RSI en zona operable')
+        favor.append(f'RSI {rsi_val} — zona neutral, operable')
 
-    # 4. Resistencia cercana
+    # ── 5. GAP ROOM / RESISTENCIA ─────────────────────────────────
     if near_resistance and raw_direction == 'ALCISTA':
-        contra.append('Precio cerca de resistencia')
+        contra.append('Precio muy cerca de resistencia — gap room limitado para subir')
     elif not near_resistance:
-        favor.append('Gap room disponible')
+        favor.append('Gap room disponible — precio alejado de resistencias')
 
-    # 5. Earnings
-    if earnings_days <= 1:
-        contra.append('🚨 EARNINGS mañana — NO OPERAR')
-    elif earnings_days <= 5:
-        contra.append(f'Earnings en {earnings_days} días — precaución')
-    else:
-        favor.append('Sin earnings próximos')
-
-    # 6. SEC insiders (señal más fiable)
-    if sec_score >= 3:
-        favor.append(f'Insiders comprando (SEC Form 4) +{sec_score}pts')
-    elif sec_score <= -3:
-        contra.append(f'Insiders vendiendo (SEC Form 4) {sec_score}pts')
-
-    # 7. Ballenas / upgrades bancos (24h)
-    if whale_score >= 2:
-        favor.append(f'Upgrades / señales institucionales +{whale_score}pts')
-    elif whale_score <= -2:
-        contra.append(f'Downgrades / señales negativas {whale_score}pts')
-
-    # 8. Volumen
+    # ── 6. VOLUMEN / RVOL ─────────────────────────────────────────
     if vol_score >= 2:
-        favor.append('Acumulación institucional detectada (RVOL)')
+        favor.append(f'RVOL {rvol}x — acumulación institucional detectada hoy')
     elif vol_score <= -2:
-        contra.append('Distribución institucional detectada (RVOL)')
+        contra.append(f'RVOL {rvol}x — distribución institucional detectada hoy')
+    elif rvol >= 1.5:
+        favor.append(f'RVOL {rvol}x — volumen elevado, interés institucional')
+    else:
+        favor.append(f'RVOL {rvol}x — volumen normal, sin anomalías')
 
-    # 9. Evento macro
+    # ── 7. EARNINGS ───────────────────────────────────────────────
+    if earnings_days <= 1:
+        contra.append('🚨 Earnings MAÑANA — volatilidad impredecible, no operar')
+    elif earnings_days <= 3:
+        contra.append(f'Earnings en {earnings_days} días — spreads amplios, precaución máxima')
+    elif earnings_days <= 7:
+        contra.append(f'Earnings en {earnings_days} días — considera reducir tamaño')
+    else:
+        favor.append(f'Sin earnings próximos — entorno limpio para operar')
+
+    # ── 8. SEC FORM 4 — INSIDERS ──────────────────────────────────
+    if sec_score >= 3:
+        favor.append(f'Insiders comprando sus propias acciones (SEC Form 4) — señal alcista fuerte')
+    elif sec_score >= 1:
+        favor.append(f'Actividad insider ligeramente positiva (SEC Form 4)')
+    elif sec_score <= -3:
+        contra.append(f'Insiders VENDIENDO sus propias acciones (SEC Form 4) — señal bajista fuerte')
+    elif sec_score <= -1:
+        contra.append(f'Actividad insider ligeramente negativa (SEC Form 4)')
+
+    # ── 9. SEÑALES INSTITUCIONALES 24H ────────────────────────────
+    if whale_score >= 2:
+        favor.append(f'Upgrades de bancos / block trades detectados en últimas 24h (+{whale_score}pts)')
+    elif whale_score <= -2:
+        contra.append(f'Downgrades de bancos / short sellers detectados en últimas 24h ({whale_score}pts)')
+
+    # ── 10. EVENTO MACRO ──────────────────────────────────────────
     if macro_event:
-        contra.append('📰 Evento macro hoy — alta volatilidad')
+        contra.append('📰 Evento macro hoy (CPI/NFP/FOMC) — volatilidad extrema, no operar')
 
-    # ── Decisión ──────────────────────────────────────────────────
+    # ── DECISIÓN FINAL ────────────────────────────────────────────
     n_favor  = len(favor)
     n_contra = len(contra)
 
-    # Condición de bloqueo absoluto
     hard_block = (earnings_days <= 1 or macro_event or
                   (futures_warning and is_fakeout))
 
     if hard_block:
         color  = 'red'
         titulo = '🔴 NO OPERAR HOY'
-        desc   = 'Hay condiciones de riesgo extremo activas.'
-    elif n_favor >= 5 and n_contra <= 1:
+        desc   = 'Condición de riesgo extremo activa. Protege el drawdown.'
+    elif n_favor >= 6 and n_contra <= 1:
         color  = 'green'
         titulo = '🟢 SEÑAL CLARA — OPERAR'
-        desc   = f'{n_favor} señales a favor, {n_contra} en contra.'
+        desc   = f'{n_favor} señales a favor, {n_contra} en contra. Setup limpio.'
     elif n_favor >= 4 and n_contra <= 2:
         color  = 'yellow'
         titulo = '🟡 SEÑAL MODERADA — Reducir tamaño'
-        desc   = f'{n_favor} señales a favor, {n_contra} en contra. Considera medio lote.'
+        desc   = f'{n_favor} a favor, {n_contra} en contra. Opera con la mitad del tamaño habitual.'
     else:
         color  = 'red'
         titulo = '🔴 SEÑAL DÉBIL — NO OPERAR'
-        desc   = f'Solo {n_favor} señales a favor con {n_contra} en contra. Espera mejor setup.'
+        desc   = f'Solo {n_favor} señales a favor con {n_contra} en contra. Espera un setup más claro.'
 
     return {
-        'color':   color,
-        'titulo':  titulo,
-        'desc':    desc,
-        'favor':   favor,
-        'contra':  contra
+        'color':  color,
+        'titulo': titulo,
+        'desc':   desc,
+        'favor':  favor,
+        'contra': contra
     }
 
 
@@ -700,7 +740,16 @@ def calculate_gap_probability(ticker):
             sec_score       = sec_data['score'],
             whale_score     = whale_score,
             vol_score       = vol_data['volume_score'],
-            macro_event     = macro_event
+            macro_event     = macro_event,
+            drift_trend     = drift_trend,
+            drift_avg       = drift,
+            hist_pct        = hist_prob,
+            rsi_val         = rsi_val,
+            fut_signal      = fut_signal,
+            fut_change      = fut_change,
+            index_name      = idx_name,
+            vol_signal      = vol_data['volume_signal'],
+            rvol            = vol_data['rvol']
         )
 
         # Precio actual
