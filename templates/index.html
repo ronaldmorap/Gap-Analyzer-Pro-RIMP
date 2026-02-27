@@ -221,15 +221,15 @@
 
 <div class="container">
 
-    <!-- EARNINGS CALENDAR -->
+    <!-- MARKET LEADERS -->
     <div class="section">
         <div class="sec-hdr">
-            <h2>Earnings Calendar</h2>
+            <h2>Market Leaders</h2>
             <div class="sec-line"></div>
-            <div class="sec-tag">Próximos resultados</div>
+            <button class="btn btn-outline" style="padding:7px 16px;font-size:12px" onclick="loadDashboard()">↻ Actualizar</button>
         </div>
-        <div class="loading" id="loadingEarnings">Cargando...</div>
-        <div class="earn-grid" id="earningsGrid"></div>
+        <div class="loading" id="loadingDash">Cargando…</div>
+        <div class="leaders-grid" id="dashGrid"></div>
     </div>
 
     <!-- ANÁLISIS -->
@@ -319,15 +319,15 @@
         </div>
     </div>
 
-    <!-- MARKET LEADERS -->
+    <!-- EARNINGS CALENDAR -->
     <div class="section">
         <div class="sec-hdr">
-            <h2>Market Leaders</h2>
+            <h2>Earnings Calendar</h2>
             <div class="sec-line"></div>
-            <button class="btn btn-outline" style="padding:7px 16px;font-size:12px" onclick="loadDashboard()">↻ Actualizar</button>
+            <div class="sec-tag">Próximos resultados</div>
         </div>
-        <div class="loading" id="loadingDash">Cargando…</div>
-        <div class="leaders-grid" id="dashGrid"></div>
+        <div class="loading" id="loadingEarnings">Cargando...</div>
+        <div class="earn-grid" id="earningsGrid"></div>
     </div>
 
     <!-- TRADES -->
@@ -465,17 +465,28 @@ function renderResult(d){
     fav.innerHTML=(f.favor||[]).map(s=>`<div class="ftmo-item"><div class="fi-dot good"></div>${s}</div>`).join('')||'<div class="no-sig">—</div>';
     con.innerHTML=(f.contra||[]).map(s=>`<div class="ftmo-item"><div class="fi-dot bad"></div>${s}</div>`).join('')||'<div class="no-sig">—</div>';
 
-    // Data grid
+    // Data grid — dinámico: 5 cards cuando no hay macro, 6 cuando sí hay
     const dg=document.getElementById('dataGrid');
     const dr=d.drift_trend==='alcista'?'🟢':d.drift_trend==='bajista'?'🔴':'⚪';
     const nr=d.gap_room?.near_resistance?'⚠️ Cerca resistencia':'✅ Espacio libre';
+    // Sin macro: minmax más grande para que las 5 cards llenen el espacio
+    // Con macro: minmax más pequeño para que las 6 quepan bien
+    dg.style.gridTemplateColumns = d.macro_event
+        ? 'repeat(auto-fill,minmax(160px,1fr))'
+        : 'repeat(auto-fill,minmax(200px,1fr))';
+    const macroCard = d.macro_event ? `
+        <div class="data-card" style="border-color:var(--amber-b);background:var(--amber-bg);grid-column:span 2">
+            <div class="dc-lbl" style="color:var(--amber)">⚠️ EVENTO MACRO</div>
+            <div class="dc-val" style="color:var(--amber);font-size:12px">${d.macro_reason||'Evento detectado'}</div>
+            ${d.macro_date?`<div style="font-size:10px;color:var(--muted);margin-top:3px">${d.macro_date} ${d.macro_time||''}</div>`:''}
+        </div>` : '';
     dg.innerHTML=`
         <div class="data-card"><div class="dc-lbl">${d.index_name||'Índice'} 30min</div><div class="dc-val">${d.futures_signal||'—'}</div></div>
         <div class="data-card"><div class="dc-lbl">Overnight Drift 20d</div><div class="dc-val">${dr} ${d.overnight_drift>0?'+':''}${d.overnight_drift}% · ${d.drift_trend}</div></div>
         <div class="data-card"><div class="dc-lbl">Gap Room</div><div class="dc-val">${nr} · +${d.gap_room?.room_up}%</div></div>
         <div class="data-card"><div class="dc-lbl">Volumen</div><div class="dc-val">${d.volume?.volume_signal||'—'}</div></div>
         <div class="data-card"><div class="dc-lbl">RSI</div><div class="dc-val">${d.rsi_value} ${d.is_fakeout?'⚠️ Fakeout':''}</div></div>
-        ${d.macro_event?`<div class="data-card" style="border-color:var(--amber-b);background:var(--amber-bg)"><div class="dc-lbl">Macro</div><div class="dc-val" style="color:var(--amber)">⚠️ ${d.macro_reason}</div></div>`:''}
+        ${macroCard}
     `;
 
     // SEC Form 4
