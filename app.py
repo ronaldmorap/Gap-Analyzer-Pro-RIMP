@@ -635,21 +635,43 @@ def get_ftmo_signal(probability, raw_direction, futures_warning,
     else:
         favor.append(f'Sin earnings próximos — entorno limpio para operar')
 
-    # ── 8. SEC FORM 4 — INSIDERS ──────────────────────────────────
+    # ── 8. SEC FORM 4 — INSIDERS (relativo a dirección) ──────────
+    # Compras insider confirman alcista → a favor. Confirman bajista → en contra.
+    # Ventas insider confirman bajista → a favor. Confirman alcista → en contra.
     if sec_score >= 3:
-        favor.append(f'Insiders comprando sus propias acciones (SEC Form 4) — señal alcista fuerte')
+        if raw_direction == 'ALCISTA':
+            favor.append(f'Insiders COMPRANDO sus propias acciones (SEC Form 4) — confirma dirección alcista')
+        else:
+            contra.append(f'Insiders COMPRANDO (SEC Form 4) — contradice dirección bajista')
     elif sec_score >= 1:
-        favor.append(f'Actividad insider ligeramente positiva (SEC Form 4)')
+        if raw_direction == 'ALCISTA':
+            favor.append(f'Actividad insider positiva (SEC Form 4) — alineada con dirección alcista')
+        else:
+            contra.append(f'Actividad insider positiva (SEC Form 4) — contradice dirección bajista')
     elif sec_score <= -3:
-        contra.append(f'Insiders VENDIENDO sus propias acciones (SEC Form 4) — señal bajista fuerte')
+        if raw_direction == 'BAJISTA':
+            favor.append(f'Insiders VENDIENDO sus propias acciones (SEC Form 4) — confirma dirección bajista')
+        else:
+            contra.append(f'Insiders VENDIENDO (SEC Form 4) — contradice dirección alcista')
     elif sec_score <= -1:
-        contra.append(f'Actividad insider ligeramente negativa (SEC Form 4)')
+        if raw_direction == 'BAJISTA':
+            favor.append(f'Actividad insider negativa (SEC Form 4) — alineada con dirección bajista')
+        else:
+            contra.append(f'Actividad insider negativa (SEC Form 4) — contradice dirección alcista')
 
-    # ── 9. SEÑALES INSTITUCIONALES 24H ────────────────────────────
+    # ── 9. SEÑALES INSTITUCIONALES 24H (relativo a dirección) ─────
+    # whale_score positivo = upgrades/compras → confirma alcista, contradice bajista
+    # whale_score negativo = downgrades/short sellers → confirma bajista, contradice alcista
     if whale_score >= 2:
-        favor.append(f'Upgrades de bancos / block trades detectados en últimas 24h (+{whale_score}pts)')
+        if raw_direction == 'ALCISTA':
+            favor.append(f'Upgrades / señales institucionales alcistas en 24h (+{whale_score}pts) — confirma dirección')
+        else:
+            contra.append(f'Upgrades / señales alcistas en 24h (+{whale_score}pts) — contradice dirección bajista')
     elif whale_score <= -2:
-        contra.append(f'Downgrades de bancos / short sellers detectados en últimas 24h ({whale_score}pts)')
+        if raw_direction == 'BAJISTA':
+            favor.append(f'Downgrades / short sellers en 24h ({whale_score}pts) — confirma dirección bajista')
+        else:
+            contra.append(f'Downgrades / short sellers en 24h ({whale_score}pts) — contradice dirección alcista')
 
     # ── 10. EVENTO MACRO ──────────────────────────────────────────
     if macro_event:
@@ -741,14 +763,14 @@ def calculate_gap_probability(ticker):
         sec_data                             = results.get('sec') or {'score': 0, 'signals': [], 'summary': 'Sin datos SEC'}
 
         # ── Probabilidad ─────────────────────────────────────────
+        # PRIMERA PASADA: calcular dirección base sin señales relativas
         final = hist_prob + tech_score * 0.3
 
         dte = earnings.get('days_to_earnings', 999)
         if   dte <= 1: final += 10
         elif dte <= 7: final += 5
 
-        final += whale_score * 4
-        final += sec_data['score'] * 3
+        # Señales independientes de dirección (se calculan antes de saber raw_dir)
         final += 5 if drift > 0.1 else -5 if drift < -0.1 else 0
         final += fut_score * 10
         final += soc_score * 6
@@ -756,6 +778,18 @@ def calculate_gap_probability(ticker):
 
         if gap_room.get('near_resistance') and final >= 50: final -= 8
         if is_fakeout and final >= 50:                       final -= 10
+
+        # Dirección base (antes de aplicar señales relativas)
+        raw_dir_base = 'ALCISTA' if final >= 50 else 'BAJISTA'
+
+        # SEGUNDA PASADA: señales institucionales y SEC relativas a la dirección
+        # Si la dirección es ALCISTA:  whale+ suma, whale- resta
+        # Si la dirección es BAJISTA:  whale- suma (confirma), whale+ resta (contradice)
+        # La lógica: multiplicamos por -1 si es bajista para invertir el efecto
+        direction_mult = 1 if raw_dir_base == 'ALCISTA' else -1
+
+        final += whale_score * 4 * direction_mult
+        final += sec_data['score'] * 3 * direction_mult
 
         final     = max(15, min(85, final))
         raw_dir   = 'ALCISTA' if final >= 50 else 'BAJISTA'
