@@ -101,7 +101,8 @@
         .ep-published{background:var(--green-bg);border:1px solid var(--green-b);color:var(--green)}
 
         /* DATOS SECUNDARIOS */
-        .data-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:10px;margin-bottom:18px}
+        .data-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:18px}
+        @media(max-width:768px){.data-grid{grid-template-columns:repeat(2,1fr)}}
         .data-card{background:var(--surface2);border:1px solid var(--border);border-radius:var(--rs);padding:14px}
         .dc-lbl{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;font-weight:600;margin-bottom:5px}
         .dc-val{font-size:13px;font-weight:600;color:var(--text2)}
@@ -473,7 +474,7 @@ function renderResult(d){
     // Con macro: minmax más pequeño para que las 6 quepan bien
     // Las 5 tarjetas siempre ocupan el 100% del ancho en una fila (repeat 5 columnas iguales)
     // Si hay macro, aparece en su propia fila debajo ocupando todo el ancho
-    dg.style.gridTemplateColumns = 'repeat(5,1fr)';
+    dg.style.gridTemplateColumns = '';
     const macroCard = d.macro_event ? `
         <div class="data-card" style="grid-column:1/-1;border-color:var(--amber-b);background:var(--amber-bg)">
             <div class="dc-lbl" style="color:var(--amber)">⚠️ EVENTO MACRO</div>
