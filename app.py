@@ -90,10 +90,11 @@ def get_earnings_info(ticker):
     try:
         ed = stock.get_earnings_dates(limit=20)
         if ed is not None and not ed.empty:
-            days_list = [((norm := _norm_ts(dt)) and ((norm - today).days, norm))
-                         for dt in ed.index]
-            days_list = [(d, n) for item in days_list
-                         if item for d, n in [item] if n is not None]
+            days_list = []
+            for dt in ed.index:
+                norm = _norm_ts(dt)
+                if norm is not None:
+                    days_list.append(((norm - today).days, norm))
             future = sorted([(d, n) for d, n in days_list if 0 <= d <= 90])
             if future:
                 d, n = future[0]
@@ -306,6 +307,10 @@ def get_whale_signals(ticker):
 #  MACRO — solo eventos de alto impacto (no sentiment genérico)
 # ═══════════════════════════════════════════════════════════════════
 def check_high_impact_news():
+    """
+    Devuelve (activo, titulo_noticia, fecha_pub, hora_pub)
+    Si no hay evento macro: (False, None, None, None)
+    """
     cached = _cache_get('high_impact_news')
     if cached is not None:
         return cached
@@ -315,20 +320,32 @@ def check_high_impact_news():
             f'https://news.google.com/rss/search?q={q}&hl=en-US&gl=US&ceid=US:en',
             timeout=7).content)
         for item in root.findall('.//item')[:10]:
-            title = (item.find('title').text or '').upper()
-            pub   = item.find('pubDate').text or ''
+            raw_title = item.find('title').text or ''
+            title_up  = raw_title.upper()
+            pub       = item.find('pubDate').text or ''
             if not _news_is_fresh(pub, max_hours=48):
                 continue
             for kw in HIGH_IMPACT_KEYWORDS:
-                if kw.upper() in title:
-                    result = (True, f'Evento macro: {kw}')
+                if kw.upper() in title_up:
+                    # Parsear fecha y hora legible
+                    try:
+                        import calendar
+                        dt  = parsedate_to_datetime(pub)
+                        ts  = calendar.timegm(dt.utctimetuple())
+                        dtl = datetime.utcfromtimestamp(ts)
+                        fecha_str = dtl.strftime('%d/%m/%Y')
+                        hora_str  = dtl.strftime('%H:%M') + ' UTC'
+                    except Exception:
+                        fecha_str = pub[:16]
+                        hora_str  = ''
+                    result = (True, raw_title[:120], fecha_str, hora_str)
                     _cache_set('high_impact_news', result)
                     return result
-        result = (False, None)
+        result = (False, None, None, None)
         _cache_set('high_impact_news', result)
         return result
     except Exception:
-        return False, None
+        return False, None, None, None
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -530,7 +547,8 @@ def get_ftmo_signal(probability, raw_direction, futures_warning,
                     sec_score, whale_score, vol_score, macro_event,
                     drift_trend, drift_avg, hist_pct, rsi_val,
                     fut_signal, fut_change, index_name,
-                    vol_signal, rvol):
+                    vol_signal, rvol,
+                    macro_title=None, macro_date=None, macro_time=None):
     """
     Semáforo FTMO con etiquetas específicas y descriptivas en cada señal.
     Verde: opera. Amarillo: reduce tamaño. Rojo: no operar.
@@ -635,7 +653,14 @@ def get_ftmo_signal(probability, raw_direction, futures_warning,
 
     # ── 10. EVENTO MACRO ──────────────────────────────────────────
     if macro_event:
-        contra.append('📰 Evento macro hoy (CPI/NFP/FOMC) — volatilidad extrema, no operar')
+        # Mostrar título real, fecha y hora de la noticia
+        noticia_txt = macro_title[:80] if macro_title else 'Evento macro detectado'
+        when_txt    = ''
+        if macro_date and macro_time:
+            when_txt = f' · {macro_date} {macro_time}'
+        elif macro_date:
+            when_txt = f' · {macro_date}'
+        contra.append(f'📰 {noticia_txt}{when_txt} — no operar')
 
     # ── DECISIÓN FINAL ────────────────────────────────────────────
     n_favor  = len(favor)
@@ -712,7 +737,7 @@ def calculate_gap_probability(ticker):
         soc_score, soc_trend, bull_pct, msg_count   = results.get('social') or (0, 'Sin datos', 50, 0)
         is_fakeout, fakeout_reason, rsi_val         = results.get('fakeout') or (False, '', 50)
         vol_data                             = results.get('volume') or {'rvol': 1.0, 'volume_signal': 'Sin datos', 'volume_score': 0, 'absorption': False, 'capitulation': False, 'anomaly': False}
-        macro_event, macro_reason            = results.get('macro_flag') or (False, None)
+        macro_event, macro_reason, macro_date, macro_time = results.get('macro_flag') or (False, None, None, None)
         sec_data                             = results.get('sec') or {'score': 0, 'signals': [], 'summary': 'Sin datos SEC'}
 
         # ── Probabilidad ─────────────────────────────────────────
@@ -751,6 +776,9 @@ def calculate_gap_probability(ticker):
             whale_score     = whale_score,
             vol_score       = vol_data['volume_score'],
             macro_event     = macro_event,
+            macro_title     = macro_reason,
+            macro_date      = macro_date,
+            macro_time      = macro_time,
             drift_trend     = drift_trend,
             drift_avg       = drift,
             hist_pct        = hist_prob,
@@ -796,6 +824,8 @@ def calculate_gap_probability(ticker):
             'sec':              sec_data,
             'macro_event':      macro_event,
             'macro_reason':     macro_reason,
+            'macro_date':       macro_date,
+            'macro_time':       macro_time,
         }
 
     except Exception as e:
@@ -815,7 +845,7 @@ def calculate_gap_probability(ticker):
                        'absorption': False, 'capitulation': False, 'anomaly': False},
             'whale_signals': [], 'whale_score': 0,
             'sec': {'score': 0, 'signals': [], 'summary': 'Sin datos'},
-            'macro_event': False, 'macro_reason': None,
+            'macro_event': False, 'macro_reason': None, 'macro_date': None, 'macro_time': None,
         }
 
 
