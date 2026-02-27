@@ -471,11 +471,11 @@ function renderResult(d){
     const nr=d.gap_room?.near_resistance?'⚠️ Cerca resistencia':'✅ Espacio libre';
     // Sin macro: minmax más grande para que las 5 cards llenen el espacio
     // Con macro: minmax más pequeño para que las 6 quepan bien
-    dg.style.gridTemplateColumns = d.macro_event
-        ? 'repeat(auto-fill,minmax(160px,1fr))'
-        : 'repeat(auto-fill,minmax(200px,1fr))';
+    // Las 5 tarjetas siempre ocupan el 100% del ancho en una fila (repeat 5 columnas iguales)
+    // Si hay macro, aparece en su propia fila debajo ocupando todo el ancho
+    dg.style.gridTemplateColumns = 'repeat(5,1fr)';
     const macroCard = d.macro_event ? `
-        <div class="data-card" style="border-color:var(--amber-b);background:var(--amber-bg);grid-column:span 2">
+        <div class="data-card" style="grid-column:1/-1;border-color:var(--amber-b);background:var(--amber-bg)">
             <div class="dc-lbl" style="color:var(--amber)">⚠️ EVENTO MACRO</div>
             <div class="dc-val" style="color:var(--amber);font-size:12px">${d.macro_reason||'Evento detectado'}</div>
             ${d.macro_date?`<div style="font-size:10px;color:var(--muted);margin-top:3px">${d.macro_date} ${d.macro_time||''}</div>`:''}
@@ -539,7 +539,7 @@ async function loadDashboard(){
                 window.scrollTo({top:300,behavior:'smooth'});
             };
             const sigCls=`lcs-${f.color||'red'}`;
-            const sigTxt=f.color==='green'?'OPERAR':f.color==='yellow'?'CUIDADO':'NO OPERAR';
+            const sigTxt=f.color==='green'?'OPERAR':f.color==='yellow'?'CUIDADO':'⚠️ CUIDADO';
             const dir=s.raw_direction||'NEUTRAL';
             const dirCls=dir==='ALCISTA'?'c-bullish':dir==='BAJISTA'?'c-bearish':'c-neutral';
             const earn=s.earnings;

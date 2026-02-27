@@ -693,8 +693,8 @@ def get_ftmo_signal(probability, raw_direction, futures_warning,
 
     if hard_block:
         color  = 'red'
-        titulo = '🔴 NO OPERAR HOY'
-        desc   = 'Condición de riesgo extremo activa. Protege el drawdown.'
+        titulo = '⚠️ Alta volatilidad · Gestiona el riesgo'
+        desc   = 'Condición de riesgo extremo activa. Reduce el tamaño y protege el drawdown.'
     elif probability < 60:
         # Señal débil — nunca verde aunque haya señales a favor
         color  = 'yellow'
@@ -710,7 +710,7 @@ def get_ftmo_signal(probability, raw_direction, futures_warning,
         desc   = f'{n_favor} a favor, {n_contra} en contra. Opera con la mitad del tamaño habitual.'
     else:
         color  = 'red'
-        titulo = '🔴 SEÑAL DÉBIL — NO OPERAR'
+        titulo = '🔴 SEÑAL DÉBIL — Evita operar'
         desc   = f'Solo {n_favor} señales a favor con {n_contra} en contra. Espera un setup más claro.'
 
     return {
