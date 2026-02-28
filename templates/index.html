@@ -101,7 +101,9 @@
         .ep-published{background:var(--green-bg);border:1px solid var(--green-b);color:var(--green)}
 
         /* DATOS SECUNDARIOS */
-        .data-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(0,1fr));gap:10px;margin-bottom:18px}
+        .data-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:18px}
+        @media(max-width:900px){.data-grid{grid-template-columns:repeat(3,1fr)}}
+        @media(max-width:600px){.data-grid{grid-template-columns:repeat(2,1fr)}}
         @media(max-width:768px){.data-grid{grid-template-columns:repeat(2,1fr)}}
         .data-card{background:var(--surface2);border:1px solid var(--border);border-radius:var(--rs);padding:14px}
         .dc-lbl{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;font-weight:600;margin-bottom:5px}
