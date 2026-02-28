@@ -38,7 +38,11 @@ COMPANY_NAMES = {
     'TSLA': 'Tesla',  'NFLX': 'Netflix',  'RACE': 'Ferrari'
 }
 
-NYSE_STOCKS = ['RACE']
+NYSE_STOCKS   = ['RACE']          # SP500
+NASDAQ_STOCKS = ['AAPL','MSFT','GOOGL','AMZN','NVDA','META','TSLA','NFLX']  # Nasdaq
+
+SP500_KEYWORDS  = ['S&P', 'SP500', 'S&P500', 'SPX', 'SP 500']
+NASDAQ_KEYWORDS = ['NASDAQ', 'QQQ', 'NDX', 'TECH STOCKS', 'NASDAQ 100']
 
 INVESTOR_URLS = {
     'AAPL':  'https://investor.apple.com/investor-relations/default.aspx',
@@ -306,12 +310,15 @@ def get_whale_signals(ticker):
 # ═══════════════════════════════════════════════════════════════════
 #  MACRO — solo eventos de alto impacto (no sentiment genérico)
 # ═══════════════════════════════════════════════════════════════════
-def check_high_impact_news():
+def check_high_impact_news(ticker='AAPL'):
     """
-    Devuelve (activo, titulo_noticia, fecha_pub, hora_pub)
-    Si no hay evento macro: (False, None, None, None)
+    Devuelve (activo, titulo_noticia, fecha_pub, hora_pub, sentimiento)
+    sentimiento: 'positivo', 'negativo', 'neutro'
+    Filtra noticias SP500 para NYSE y Nasdaq para Nasdaq.
+    Si no hay evento macro: (False, None, None, None, None)
     """
-    cached = _cache_get('high_impact_news')
+    cache_key = f'high_impact_news_{ticker}'
+    cached = _cache_get(cache_key)
     if cached is not None:
         return cached
     try:
@@ -338,14 +345,30 @@ def check_high_impact_news():
                     except Exception:
                         fecha_str = pub[:16]
                         hora_str  = ''
-                    result = (True, raw_title[:120], fecha_str, hora_str)
-                    _cache_set('high_impact_news', result)
+                    # Filtrar por índice: SP500 news solo para NYSE, Nasdaq news solo para Nasdaq
+                    title_check = raw_title.upper()
+                    is_sp500_news    = any(k in title_check for k in SP500_KEYWORDS)
+                    is_nasdaq_news   = any(k in title_check for k in NASDAQ_KEYWORDS)
+                    is_nyse_ticker   = ticker in NYSE_STOCKS
+                    # Si la noticia es específica de un índice que NO es el del ticker, ignorar
+                    if is_sp500_news and not is_nyse_ticker:
+                        continue
+                    if is_nasdaq_news and is_nyse_ticker:
+                        continue
+                    # Determinar sentimiento de la noticia
+                    positive_words = ['SURGE', 'RALLY', 'GAIN', 'RISE', 'JUMP', 'SOAR', 'BOOST', 'UP', 'HIGH', 'STRONG', 'BEAT', 'RECORD']
+                    negative_words = ['SLIDE', 'FALL', 'DROP', 'PLUNGE', 'CRASH', 'DECLINE', 'DOWN', 'WEAK', 'MISS', 'LOSS', 'FEAR', 'SELL', 'INFLATION', 'HOT']
+                    pos = sum(1 for w in positive_words if w in title_check)
+                    neg = sum(1 for w in negative_words if w in title_check)
+                    sentimiento = 'positivo' if pos > neg else 'negativo' if neg > pos else 'neutro'
+                    result = (True, raw_title[:120], fecha_str, hora_str, sentimiento)
+                    _cache_set(cache_key, result)
                     return result
-        result = (False, None, None, None)
-        _cache_set('high_impact_news', result)
+        result = (False, None, None, None, None)
+        _cache_set(cache_key, result)
         return result
     except Exception:
-        return False, None, None, None
+        return False, None, None, None, None
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -548,7 +571,8 @@ def get_ftmo_signal(probability, raw_direction, futures_warning,
                     drift_trend, drift_avg, hist_pct, rsi_val,
                     fut_signal, fut_change, index_name,
                     vol_signal, rvol,
-                    macro_title=None, macro_date=None, macro_time=None):
+                    macro_title=None, macro_date=None, macro_time=None,
+                    macro_sent=None, vol_pct=0):
     """
     Semáforo FTMO con etiquetas específicas y descriptivas en cada señal.
     Verde: opera. Amarillo: reduce tamaño. Rojo: no operar.
@@ -615,13 +639,24 @@ def get_ftmo_signal(probability, raw_direction, futures_warning,
     elif not near_resistance:
         favor.append('Gap room disponible — precio alejado de resistencias')
 
-    # ── 6. VOLUMEN / RVOL ─────────────────────────────────────────
+    # ── 6. VOLUMEN / RVOL (relativo a dirección) ────────────────────
+    # vol_score positivo = precio sube con volumen alto (acumulación alcista)
+    # vol_score negativo = precio baja con volumen alto (distribución bajista)
     if vol_score >= 2:
-        favor.append(f'RVOL {rvol}x — acumulación institucional detectada hoy')
+        if raw_direction == 'ALCISTA':
+            favor.append(f'RVOL {rvol}x — acumulación institucional alcista hoy, confirma dirección')
+        else:
+            contra.append(f'RVOL {rvol}x — acumulación alcista con dirección bajista, contradice')
     elif vol_score <= -2:
-        contra.append(f'RVOL {rvol}x — distribución institucional detectada hoy')
+        if raw_direction == 'BAJISTA':
+            favor.append(f'RVOL {rvol}x — distribución institucional bajista hoy, confirma dirección')
+        else:
+            contra.append(f'RVOL {rvol}x — distribución bajista con dirección alcista, contradice')
     elif rvol >= 1.5:
-        favor.append(f'RVOL {rvol}x — volumen elevado, interés institucional')
+        if (vol_pct > 0 and raw_direction == 'ALCISTA') or (vol_pct < 0 and raw_direction == 'BAJISTA'):
+            favor.append(f'RVOL {rvol}x — volumen elevado alineado con dirección {raw_direction.lower()}')
+        elif rvol >= 1.5:
+            contra.append(f'RVOL {rvol}x — volumen elevado pero contra la dirección {raw_direction.lower()}')
     else:
         favor.append(f'RVOL {rvol}x — volumen normal, sin anomalías')
 
@@ -675,20 +710,33 @@ def get_ftmo_signal(probability, raw_direction, futures_warning,
 
     # ── 10. EVENTO MACRO ──────────────────────────────────────────
     if macro_event:
-        # Mostrar título real, fecha y hora de la noticia
         noticia_txt = macro_title[:80] if macro_title else 'Evento macro detectado'
-        when_txt    = ''
-        if macro_date and macro_time:
-            when_txt = f' · {macro_date} {macro_time}'
-        elif macro_date:
-            when_txt = f' · {macro_date}'
-        contra.append(f'📰 {noticia_txt}{when_txt} — no operar')
+        when_txt = f' · {macro_date} {macro_time}' if macro_date and macro_time else (f' · {macro_date}' if macro_date else '')
+        # Noticia positiva + alcista = a favor / positiva + bajista = en contra
+        # Noticia negativa + bajista = a favor / negativa + alcista = en contra
+        if macro_sent == 'positivo' and raw_direction == 'ALCISTA':
+            favor.append(f'📰 Noticia positiva confirma dirección alcista: {noticia_txt}{when_txt}')
+        elif macro_sent == 'negativo' and raw_direction == 'BAJISTA':
+            favor.append(f'📰 Noticia negativa confirma dirección bajista: {noticia_txt}{when_txt}')
+        elif macro_sent == 'positivo' and raw_direction == 'BAJISTA':
+            contra.append(f'📰 Noticia positiva contradice dirección bajista: {noticia_txt}{when_txt}')
+        elif macro_sent == 'negativo' and raw_direction == 'ALCISTA':
+            contra.append(f'📰 Noticia negativa contradice dirección alcista: {noticia_txt}{when_txt}')
+        else:
+            contra.append(f'⚠️ Evento macro — alta volatilidad: {noticia_txt}{when_txt}')
 
     # ── DECISIÓN FINAL ────────────────────────────────────────────
     n_favor  = len(favor)
     n_contra = len(contra)
 
-    hard_block = (earnings_days <= 1 or macro_event or
+    # hard_block: earnings mañana, fakeout+contradicción, o macro neutra/contraria
+    macro_contra = macro_event and macro_sent not in ('positivo' if raw_direction == 'ALCISTA' else ('negativo',))
+    # Simplificado: macro es hard_block solo si es neutro o va contra la dirección
+    macro_confirma = (macro_event and
+                      ((macro_sent == 'positivo' and raw_direction == 'ALCISTA') or
+                       (macro_sent == 'negativo' and raw_direction == 'BAJISTA')))
+    hard_block = (earnings_days <= 1 or
+                  (macro_event and not macro_confirma) or
                   (futures_warning and is_fakeout))
 
     if hard_block:
@@ -739,7 +787,7 @@ def calculate_gap_probability(ticker):
                 ex.submit(get_stocktwits_sentiment, ticker): 'social',
                 ex.submit(get_fakeout_detector,     ticker): 'fakeout',
                 ex.submit(get_volume_analysis,      ticker): 'volume',
-                ex.submit(check_high_impact_news):           'macro_flag',
+                ex.submit(check_high_impact_news, ticker):   'macro_flag',
                 ex.submit(get_sec_insider_activity, ticker): 'sec',
             }
             results = {}
@@ -759,7 +807,7 @@ def calculate_gap_probability(ticker):
         soc_score, soc_trend, bull_pct, msg_count   = results.get('social') or (0, 'Sin datos', 50, 0)
         is_fakeout, fakeout_reason, rsi_val         = results.get('fakeout') or (False, '', 50)
         vol_data                             = results.get('volume') or {'rvol': 1.0, 'volume_signal': 'Sin datos', 'volume_score': 0, 'absorption': False, 'capitulation': False, 'anomaly': False}
-        macro_event, macro_reason, macro_date, macro_time = results.get('macro_flag') or (False, None, None, None)
+        macro_event, macro_reason, macro_date, macro_time, macro_sent = results.get('macro_flag') or (False, None, None, None, None)
         sec_data                             = results.get('sec') or {'score': 0, 'signals': [], 'summary': 'Sin datos SEC'}
 
         # ── Probabilidad ─────────────────────────────────────────
@@ -811,6 +859,7 @@ def calculate_gap_probability(ticker):
             vol_score       = vol_data['volume_score'],
             macro_event     = macro_event,
             macro_title     = macro_reason,
+            macro_sent      = macro_sent,
             macro_date      = macro_date,
             macro_time      = macro_time,
             drift_trend     = drift_trend,
@@ -821,7 +870,9 @@ def calculate_gap_probability(ticker):
             fut_change      = fut_change,
             index_name      = idx_name,
             vol_signal      = vol_data['volume_signal'],
-            rvol            = vol_data['rvol']
+            rvol            = vol_data['rvol'],
+            macro_sent      = macro_sent,
+            vol_pct         = vol_data.get('price_change_pct', 0)
         )
 
         # Precio actual
@@ -860,6 +911,7 @@ def calculate_gap_probability(ticker):
             'macro_reason':     macro_reason,
             'macro_date':       macro_date,
             'macro_time':       macro_time,
+            'macro_sent':       macro_sent,
         }
 
     except Exception as e:
@@ -879,7 +931,7 @@ def calculate_gap_probability(ticker):
                        'absorption': False, 'capitulation': False, 'anomaly': False},
             'whale_signals': [], 'whale_score': 0,
             'sec': {'score': 0, 'signals': [], 'summary': 'Sin datos'},
-            'macro_event': False, 'macro_reason': None, 'macro_date': None, 'macro_time': None,
+            'macro_event': False, 'macro_reason': None, 'macro_date': None, 'macro_time': None, 'macro_sent': None,
         }
 
 
@@ -897,6 +949,11 @@ def analyze():
 
 @app.route('/dashboard')
 def dashboard():
+    # Limpiar caché antes de recalcular para que los datos sean siempre frescos
+    with _cache_lock:
+        keys_to_clear = [k for k in _cache if not k.startswith('sec_')]
+        for k in keys_to_clear:
+            _cache.pop(k, None)
     with ThreadPoolExecutor(max_workers=3) as ex:
         futs = {ex.submit(calculate_gap_probability, t): t for t in MARKET_LEADERS}
         raw  = {}
