@@ -271,6 +271,27 @@ def get_sec_insider_activity(ticker):
 # ═══════════════════════════════════════════════════════════════════
 #  NOTICIAS DE BALLENAS — solo Google News 24h (hasta tener UW)
 # ═══════════════════════════════════════════════════════════════════
+def get_vix_level():
+    """
+    Obtiene el nivel actual del VIX (índice de volatilidad del mercado).
+    VIX > 25: mercado nervioso, reducir exposición.
+    VIX > 30: alta volatilidad sistémica, forzar amarillo.
+    """
+    cached = _cache_get('vix_level')
+    if cached is not None:
+        return cached
+    try:
+        vix = yf.Ticker('^VIX')
+        hist = vix.history(period='2d', interval='1h')
+        if hist.empty:
+            return 15.0
+        val = round(float(hist['Close'].iloc[-1]), 1)
+        _cache_set('vix_level', val)
+        return val
+    except Exception:
+        return 15.0
+
+
 def get_whale_signals(ticker):
     score, signals = 0, []
     queries = [
@@ -278,30 +299,58 @@ def get_whale_signals(ticker):
         f'{ticker}+insider+buying+OR+selling+OR+block+trade',
         f'{ticker}+short+seller+OR+hindenburg+OR+citron'
     ]
+    def _news_age_hours(pub_str):
+        """Devuelve la antigüedad en horas de una noticia."""
+        try:
+            import calendar as cal_mod
+            dt  = parsedate_to_datetime(pub_str)
+            ts  = cal_mod.timegm(dt.utctimetuple())
+            return (datetime.utcnow() - datetime.utcfromtimestamp(ts)).total_seconds() / 3600
+        except Exception:
+            return 0
+
+    def _age_weight(hours):
+        """
+        Ponderación por antigüedad:
+        0-6h  → 1.0 (señal fresca, peso completo)
+        6-24h → 0.6 (señal reciente, algo descontada)
+        24-48h→ 0.3 (señal vieja, bastante descontada)
+        >48h  → 0.0 (ignorar)
+        """
+        if hours <= 6:   return 1.0
+        elif hours <= 24: return 0.6
+        elif hours <= 48: return 0.3
+        else:             return 0.0
+
     for q in queries:
         try:
             root = ET.fromstring(requests.get(
                 f'https://news.google.com/rss/search?q={q}&hl=en-US&gl=US&ceid=US:en',
                 timeout=6).content)
             for item in root.findall('.//item')[:5]:
-                pub = item.find('pubDate').text or ''
-                if not _news_is_fresh(pub, max_hours=24):
+                pub   = item.find('pubDate').text or ''
+                hours = _news_age_hours(pub)
+                age_w = _age_weight(hours)
+                if age_w == 0.0:
                     continue
                 title = item.find('title').text or ''
                 tl    = title.lower()
-                m     = 1.5 if 'pm' in pub.lower() else 1.0
+                # Etiqueta de antigüedad para mostrar al usuario
+                if hours <= 6:    age_label = f'hace {int(hours)}h'
+                elif hours <= 24: age_label = f'hace {int(hours)}h ·0.6x'
+                else:             age_label = f'hace {int(hours)}h ·0.3x'
                 if   any(w in tl for w in ['upgrade', 'outperform', 'overweight', 'strong buy', 'buy rating']):
-                    pts = round(1.5*m, 1);  score += pts
-                    signals.append({'signal': '🏦 Banco UPGRADE', 'detail': title[:80], 'points': pts})
+                    pts = round(1.5 * age_w, 1);  score += pts
+                    signals.append({'signal': '🏦 Banco UPGRADE', 'detail': f'{title[:70]} · {age_label}', 'points': pts})
                 elif any(w in tl for w in ['downgrade', 'underperform', 'underweight', 'sell rating']):
-                    pts = round(-1.5*m, 1); score += pts
-                    signals.append({'signal': '🏦 Banco DOWNGRADE', 'detail': title[:80], 'points': pts})
+                    pts = round(-1.5 * age_w, 1); score += pts
+                    signals.append({'signal': '🏦 Banco DOWNGRADE', 'detail': f'{title[:70]} · {age_label}', 'points': pts})
                 elif any(w in tl for w in ['hindenburg', 'short seller', 'fraud', 'citron']):
-                    pts = round(-3*m, 1);   score += pts
-                    signals.append({'signal': '⚠️ SHORT SELLER', 'detail': title[:80], 'points': pts})
+                    pts = round(-3 * age_w, 1);   score += pts
+                    signals.append({'signal': '⚠️ SHORT SELLER', 'detail': f'{title[:70]} · {age_label}', 'points': pts})
                 elif any(w in tl for w in ['block trade', 'insider buy', 'purchased shares']):
-                    pts = round(2*m, 1);    score += pts
-                    signals.append({'signal': '🐋 Block Trade / Insider', 'detail': title[:80], 'points': pts})
+                    pts = round(2 * age_w, 1);    score += pts
+                    signals.append({'signal': '🐋 Block Trade / Insider', 'detail': f'{title[:70]} · {age_label}', 'points': pts})
         except Exception:
             continue
     return round(score, 1), signals
@@ -483,22 +532,48 @@ def get_volume_analysis(ticker):
 
 
 def get_overnight_drift(ticker):
+    """
+    Calcula el overnight drift filtrando por día de la semana.
+    Los lunes (weekday=0) tienen efecto weekend → se calculan por separado.
+    Los martes-viernes usan la media estándar.
+    Devuelve (avg, trend, recent, is_monday_effect)
+    """
     try:
-        hist = yf.Ticker(ticker).history(period='30d', interval='1d')
+        hist = yf.Ticker(ticker).history(period='60d', interval='1d')
         if len(hist) < 5:
-            return 0, 'neutral', 0
-        rets = [(float(hist['Open'].iloc[i]) - float(hist['Close'].iloc[i-1]))
-                / float(hist['Close'].iloc[i-1]) * 100
-                for i in range(1, len(hist))
-                if float(hist['Close'].iloc[i-1]) > 0]
+            return 0, 'neutral', 0, False
+        today_dow = datetime.utcnow().weekday()  # 0=lunes
+        is_monday = today_dow == 0
+
+        all_rets    = []
+        monday_rets = []
+        normal_rets = []
+
+        for i in range(1, len(hist)):
+            prev_close = float(hist['Close'].iloc[i-1])
+            if prev_close <= 0:
+                continue
+            ret = (float(hist['Open'].iloc[i]) - prev_close) / prev_close * 100
+            all_rets.append(ret)
+            dow = hist.index[i].weekday()
+            if dow == 0:  # lunes
+                monday_rets.append(ret)
+            else:
+                normal_rets.append(ret)
+
+        # Si hoy es lunes, usar media de lunes anteriores (efecto weekend)
+        rets = monday_rets if (is_monday and len(monday_rets) >= 3) else normal_rets
         if not rets:
-            return 0, 'neutral', 0
+            rets = all_rets
+        if not rets:
+            return 0, 'neutral', 0, is_monday
+
         avg    = round(sum(rets) / len(rets), 3)
-        recent = round(sum(rets[-5:]) / 5, 3)
+        recent = round(sum(rets[-5:]) / min(5, len(rets)), 3)
         trend  = 'alcista' if avg > 0.1 else 'bajista' if avg < -0.1 else 'neutral'
-        return avg, trend, recent
+        return avg, trend, recent, is_monday
     except Exception:
-        return 0, 'neutral', 0
+        return 0, 'neutral', 0, False
 
 
 def get_gap_room(ticker):
@@ -525,19 +600,27 @@ def get_gap_room(ticker):
 
 
 def get_historical_gap_stats(ticker):
-    try:
-        hist = yf.Ticker(ticker).history(period='1y')
-        if hist.empty:
-            return 50
-        up = down = 0
-        for i in range(1, len(hist)):
-            g = (hist['Open'].iloc[i] - hist['Close'].iloc[i-1]) / hist['Close'].iloc[i-1] * 100
-            if g > 0.1:   up   += 1
-            elif g < -0.1: down += 1
-        total = up + down
-        return round((up / total) * 100) if total > 0 else 50
-    except Exception:
-        return 50
+    """
+    Histórico adaptativo: empieza con 1y, si hay menos de 50 gaps válidos
+    amplía a 2y automáticamente para tickers de bajo volumen (RACE, NFLX).
+    """
+    MIN_GAPS = 50
+    for period in ['1y', '2y']:
+        try:
+            hist = yf.Ticker(ticker).history(period=period)
+            if hist.empty:
+                continue
+            up = down = 0
+            for i in range(1, len(hist)):
+                g = (hist['Open'].iloc[i] - hist['Close'].iloc[i-1]) / hist['Close'].iloc[i-1] * 100
+                if g > 0.1:    up   += 1
+                elif g < -0.1: down += 1
+            total = up + down
+            if total >= MIN_GAPS or period == '2y':
+                return round((up / total) * 100) if total > 0 else 50
+        except Exception:
+            continue
+    return 50
 
 
 def get_technical_score(ticker):
@@ -572,7 +655,8 @@ def get_ftmo_signal(probability, raw_direction, futures_warning,
                     fut_signal, fut_change, index_name,
                     vol_signal, rvol,
                     macro_title=None, macro_date=None, macro_time=None,
-                    macro_sent=None, vol_pct=0):
+                    macro_sent=None, vol_pct=0,
+                    vix_level=15.0, is_monday=False):
     """
     Semáforo FTMO con etiquetas específicas y descriptivas en cada señal.
     Verde: opera. Amarillo: reduce tamaño. Rojo: no operar.
@@ -729,15 +813,26 @@ def get_ftmo_signal(probability, raw_direction, futures_warning,
     n_favor  = len(favor)
     n_contra = len(contra)
 
+    # ── VIX — volatilidad sistémica del mercado ──────────────────
+    if vix_level >= 30:
+        contra.append(f'⚠️ VIX {vix_level} — pánico de mercado, volatilidad extrema')
+    elif vix_level >= 25:
+        contra.append(f'⚠️ VIX {vix_level} — mercado nervioso, reduce exposición')
+    elif vix_level <= 15:
+        favor.append(f'VIX {vix_level} — mercado tranquilo, baja volatilidad sistémica')
+
+    # ── EFECTO LUNES ──────────────────────────────────────────────
+    if is_monday:
+        contra.append('📅 Lunes — efecto weekend, gaps impredecibles. Reduce tamaño')
+
     # hard_block: earnings mañana, fakeout+contradicción, o macro neutra/contraria
-    macro_contra = macro_event and macro_sent not in ('positivo' if raw_direction == 'ALCISTA' else ('negativo',))
-    # Simplificado: macro es hard_block solo si es neutro o va contra la dirección
     macro_confirma = (macro_event and
                       ((macro_sent == 'positivo' and raw_direction == 'ALCISTA') or
                        (macro_sent == 'negativo' and raw_direction == 'BAJISTA')))
     hard_block = (earnings_days <= 1 or
                   (macro_event and not macro_confirma) or
-                  (futures_warning and is_fakeout))
+                  (futures_warning and is_fakeout) or
+                  vix_level >= 30)
 
     if hard_block:
         color  = 'red'
@@ -789,6 +884,7 @@ def calculate_gap_probability(ticker):
                 ex.submit(get_volume_analysis,      ticker): 'volume',
                 ex.submit(check_high_impact_news, ticker):   'macro_flag',
                 ex.submit(get_sec_insider_activity, ticker): 'sec',
+                ex.submit(get_vix_level):                     'vix',
             }
             results = {}
             for fut in as_completed(futs):
@@ -801,7 +897,7 @@ def calculate_gap_probability(ticker):
         tech_score                           = results.get('tech') or 0
         earnings                             = results.get('earn') or {'has_earnings': False, 'days_to_earnings': 999, 'status': 'unknown'}
         whale_score, whale_signals           = results.get('whale') or (0, [])
-        drift, drift_trend, recent_drift     = results.get('drift') or (0, 'neutral', 0)
+        drift, drift_trend, recent_drift, is_monday = results.get('drift') or (0, 'neutral', 0, False)
         gap_room                             = results.get('room') or {'room_up': 5, 'room_down': 5, 'near_resistance': False}
         fut_score, fut_signal, fut_change, idx_name = results.get('futures') or (0, 'Sin datos', 0, 'Índice')
         soc_score, soc_trend, bull_pct, msg_count   = results.get('social') or (0, 'Sin datos', 50, 0)
@@ -809,6 +905,7 @@ def calculate_gap_probability(ticker):
         vol_data                             = results.get('volume') or {'rvol': 1.0, 'volume_signal': 'Sin datos', 'volume_score': 0, 'absorption': False, 'capitulation': False, 'anomaly': False}
         macro_event, macro_reason, macro_date, macro_time, macro_sent = results.get('macro_flag') or (False, None, None, None, None)
         sec_data                             = results.get('sec') or {'score': 0, 'signals': [], 'summary': 'Sin datos SEC'}
+        vix_level                            = results.get('vix') or 15.0
 
         # ── Probabilidad ─────────────────────────────────────────
         # PRIMERA PASADA: calcular dirección base sin señales relativas
@@ -871,7 +968,9 @@ def calculate_gap_probability(ticker):
             index_name      = idx_name,
             vol_signal      = vol_data['volume_signal'],
             rvol            = vol_data['rvol'],
-            vol_pct         = vol_data.get('price_change_pct', 0)
+            vol_pct         = vol_data.get('price_change_pct', 0),
+            vix_level       = vix_level,
+            is_monday       = is_monday
         )
 
         # Precio actual
@@ -911,6 +1010,7 @@ def calculate_gap_probability(ticker):
             'macro_date':       macro_date,
             'macro_time':       macro_time,
             'macro_sent':       macro_sent,
+            'vix_level':        vix_level,
         }
 
     except Exception as e:

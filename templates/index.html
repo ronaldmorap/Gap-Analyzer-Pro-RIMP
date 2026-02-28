@@ -101,7 +101,7 @@
         .ep-published{background:var(--green-bg);border:1px solid var(--green-b);color:var(--green)}
 
         /* DATOS SECUNDARIOS */
-        .data-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:18px}
+        .data-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(0,1fr));gap:10px;margin-bottom:18px}
         @media(max-width:768px){.data-grid{grid-template-columns:repeat(2,1fr)}}
         .data-card{background:var(--surface2);border:1px solid var(--border);border-radius:var(--rs);padding:14px}
         .dc-lbl{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;font-weight:600;margin-bottom:5px}
@@ -165,6 +165,7 @@
         .lc-signal{font-size:10px;margin-top:5px;font-weight:700;padding:2px 8px;
             border-radius:20px;display:inline-block}
         .lcs-green{background:var(--green-bg);color:var(--green);border:1px solid var(--green-b)}
+        .lcs-green-strong{background:#d1fae5;color:#065f46;border:2px solid var(--green);font-weight:700}
         .lcs-yellow{background:var(--amber-bg);color:var(--amber);border:1px solid var(--amber-b)}
         .lcs-red{background:var(--red-bg);color:var(--red);border:1px solid var(--red-b)}
         .lc-neutral{border-color:var(--border)}
@@ -488,6 +489,7 @@ function renderResult(d){
         <div class="data-card"><div class="dc-lbl">Gap Room</div><div class="dc-val">${nr} · +${d.gap_room?.room_up}%</div></div>
         <div class="data-card"><div class="dc-lbl">Volumen</div><div class="dc-val">${d.volume?.volume_signal||'—'}</div></div>
         <div class="data-card"><div class="dc-lbl">RSI</div><div class="dc-val">${d.rsi_value} ${d.is_fakeout?'⚠️ Fakeout':''}</div></div>
+        ${d.vix_level?`<div class="data-card" style="${d.vix_level>=30?'border-color:var(--red-b);background:var(--red-bg)':d.vix_level>=25?'border-color:var(--amber-b);background:var(--amber-bg)':''}"><div class="dc-lbl">VIX</div><div class="dc-val" style="${d.vix_level>=30?'color:var(--red)':d.vix_level>=25?'color:var(--amber)':''}">${d.vix_level} ${d.vix_level>=30?'⚠️ Pánico':d.vix_level>=25?'⚠️ Nervioso':'✅ Tranquilo'}</div></div>`:''}
         ${macroCard}
     `;
 
@@ -542,7 +544,8 @@ async function loadDashboard(){
                 analyzeStock();
                 window.scrollTo({top:300,behavior:'smooth'});
             };
-            const sigCls=`lcs-${f.color||'red'}`;
+            const isStrongGreen = f.color==='green' && f.titulo && f.titulo.includes('FUERTE');
+            const sigCls = isStrongGreen ? 'lcs-green-strong' : `lcs-${f.color||'red'}`;
             const sigTxt=f.color==='green'?'OPERAR':f.color==='yellow'?'CUIDADO':'⚠️ CUIDADO';
             const dir=s.raw_direction||'NEUTRAL';
             const dirCls=dir==='ALCISTA'?'c-bullish':dir==='BAJISTA'?'c-bearish':'c-neutral';
