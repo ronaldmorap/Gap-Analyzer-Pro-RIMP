@@ -871,7 +871,6 @@ def calculate_gap_probability(ticker):
             index_name      = idx_name,
             vol_signal      = vol_data['volume_signal'],
             rvol            = vol_data['rvol'],
-            macro_sent      = macro_sent,
             vol_pct         = vol_data.get('price_change_pct', 0)
         )
 
