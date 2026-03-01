@@ -486,7 +486,10 @@ function renderResult(d){
             ${d.macro_date?`<div style="font-size:10px;color:var(--muted);margin-top:3px">${d.macro_date} ${d.macro_time||''}</div>`:''}
         </div>` : '';
     dg.innerHTML=`
-        <div class="data-card"><div class="dc-lbl">${d.index_name||'Índice'} 30min</div><div class="dc-val">${d.futures_signal||'—'}</div></div>
+        <div class="data-card" style="${d.futures_signal&&d.futures_signal.includes('DIVERGENCIA')?'border-color:var(--amber-b);background:var(--amber-bg)':d.futures_signal&&d.futures_signal.includes('CONFIRMACIÓN')?'border-color:var(--green-b);background:var(--green-bg)':''}">
+            <div class="dc-lbl">${d.futures_signal&&d.futures_signal.includes('DIVERGENCIA')?'⚠️ Futuros vs Índice':d.futures_signal&&d.futures_signal.includes('CONFIRMACIÓN')?'✅ Futuros + Índice':`${d.index_name||'Futuros'} 30min`}</div>
+            <div class="dc-val" style="${d.futures_signal&&d.futures_signal.includes('DIVERGENCIA')?'color:var(--amber)':''}">${d.futures_signal||'—'}</div>
+        </div>
         <div class="data-card"><div class="dc-lbl">Overnight Drift 20d</div><div class="dc-val">${dr} ${d.overnight_drift>0?'+':''}${d.overnight_drift}% · ${d.drift_trend}</div></div>
         <div class="data-card"><div class="dc-lbl">Gap Room</div><div class="dc-val">${nr} · +${d.gap_room?.room_up}%</div></div>
         <div class="data-card"><div class="dc-lbl">Volumen</div><div class="dc-val">${d.volume?.volume_signal||'—'}</div></div>
@@ -518,7 +521,7 @@ function renderResult(d){
                 <span class="${s.points>0?'sig-pts-pos':'sig-pts-neg'}">${s.points>0?'+':''}${s.points}</span>
             </div>`).join('');
     }else{
-        ws.innerHTML='<div class="no-sig">Sin señales institucionales en 24h</div>';
+        ws.innerHTML='<div class="no-sig">Sin señales institucionales en 48h</div>';
     }
 
     // Social

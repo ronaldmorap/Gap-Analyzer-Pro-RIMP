@@ -529,32 +529,92 @@ def check_high_impact_news(ticker='AAPL'):
 
 
 # ═══════════════════════════════════════════════════════════════════
-#  FUTUROS / ÍNDICE
+#  FUTUROS REALES + ÍNDICE — señal primaria y confirmación
 # ═══════════════════════════════════════════════════════════════════
 def get_futures_sentiment(ticker='AAPL'):
+    """
+    Combina futuros reales (/NQ=F o /ES=F) como señal primaria
+    con el índice (QQQ/SPY) como confirmación secundaria.
+    - Ambos coinciden      → señal fuerte (score ±2)
+    - Solo futuros         → señal normal (score ±1)
+    - Divergen             → aviso de contradicción
+    Los futuros operan 23h/día — clave para análisis nocturno.
+    """
     use_spy    = ticker in NYSE_STOCKS
-    idx_tk     = 'SPY' if use_spy else 'QQQ'
-    index_name = 'S&P 500' if use_spy else 'Nasdaq'
-    cache_key  = f'futures_{idx_tk}'
+    fut_tk     = 'ES=F'  if use_spy else 'NQ=F'
+    idx_tk     = 'SPY'   if use_spy else 'QQQ'
+    fut_name   = 'S&P 500 Futuros' if use_spy else 'Nasdaq Futuros'
+    idx_name   = 'S&P 500' if use_spy else 'Nasdaq'
+    cache_key  = f'futures_{ticker}'
     cached = _cache_get(cache_key)
     if cached is not None:
         return cached
-    try:
-        hist = yf.Ticker(idx_tk).history(period='2d', interval='5m')
-        if len(hist) < 6:
-            return 0, 'Sin datos', 0, index_name
-        last30 = hist.tail(6)
-        chg    = round(float(
-            (last30['Close'].iloc[-1] - last30['Close'].iloc[0])
-            / last30['Close'].iloc[0] * 100), 3)
-        emoji  = '🟢' if chg >= 0.3 else '🔴' if chg <= -0.3 else '⚪'
-        sign   = '+' if chg > 0 else ''
-        score  = 1 if chg >= 0.3 else -1 if chg <= -0.3 else 0
-        result = (score, f'{emoji} {index_name} {sign}{chg}% últimos 30min', chg, index_name)
-        _cache_set(cache_key, result)
-        return result
-    except Exception:
-        return 0, 'Sin datos de futuros', 0, index_name
+
+    def _get_chg(tk):
+        """Calcula cambio % últimos 30min para un ticker."""
+        try:
+            hist = yf.Ticker(tk).history(period='2d', interval='5m')
+            if len(hist) < 6:
+                return None
+            last30 = hist.tail(6)
+            return round(float(
+                (last30['Close'].iloc[-1] - last30['Close'].iloc[0])
+                / last30['Close'].iloc[0] * 100), 3)
+        except Exception:
+            return None
+
+    fut_chg = _get_chg(fut_tk)
+    idx_chg = _get_chg(idx_tk)
+
+    # ── Caso 1: Solo futuros disponibles (mercado cerrado) ─────────
+    if fut_chg is not None and idx_chg is None:
+        emoji = '🟢' if fut_chg >= 0.3 else '🔴' if fut_chg <= -0.3 else '⚪'
+        sign  = '+' if fut_chg > 0 else ''
+        score = 1 if fut_chg >= 0.3 else -1 if fut_chg <= -0.3 else 0
+        signal = f'{emoji} {fut_name} {sign}{fut_chg}% · 30min'
+        result = (score, signal, fut_chg, fut_name)
+
+    # ── Caso 2: Solo índice disponible ────────────────────────────
+    elif fut_chg is None and idx_chg is not None:
+        emoji = '🟢' if idx_chg >= 0.3 else '🔴' if idx_chg <= -0.3 else '⚪'
+        sign  = '+' if idx_chg > 0 else ''
+        score = 1 if idx_chg >= 0.3 else -1 if idx_chg <= -0.3 else 0
+        signal = f'{emoji} {idx_name} {sign}{idx_chg}% · 30min'
+        result = (score, signal, idx_chg, idx_name)
+
+    # ── Caso 3: Ambos disponibles ─────────────────────────────────
+    elif fut_chg is not None and idx_chg is not None:
+        fut_dir = 1 if fut_chg >= 0.3 else -1 if fut_chg <= -0.3 else 0
+        idx_dir = 1 if idx_chg >= 0.3 else -1 if idx_chg <= -0.3 else 0
+        sign_f  = '+' if fut_chg > 0 else ''
+        sign_i  = '+' if idx_chg > 0 else ''
+
+        if fut_dir == idx_dir and fut_dir != 0:
+            # Confirmación — ambos en la misma dirección
+            score  = 2 * fut_dir  # ±2 por confirmación doble
+            emoji  = '🟢🟢' if fut_dir > 0 else '🔴🔴'
+            signal = (f'{emoji} {fut_name} {sign_f}{fut_chg}% + '
+                      f'{idx_name} {sign_i}{idx_chg}% — CONFIRMACIÓN DOBLE')
+        elif fut_dir != 0 and idx_dir != 0 and fut_dir != idx_dir:
+            # Divergencia — futuros y índice en direcciones opuestas
+            score  = 0  # se anulan
+            signal = (f'⚠️ DIVERGENCIA: {fut_name} {sign_f}{fut_chg}% vs '
+                      f'{idx_name} {sign_i}{idx_chg}% — precaución')
+        else:
+            # Uno neutro, el otro con señal
+            score  = fut_dir if fut_dir != 0 else idx_dir
+            emoji  = '🟢' if score > 0 else '🔴' if score < 0 else '⚪'
+            signal = (f'{emoji} {fut_name} {sign_f}{fut_chg}% · '
+                      f'{idx_name} {sign_i}{idx_chg}%')
+
+        result = (score, signal, fut_chg, fut_name)
+
+    # ── Caso 4: Sin datos ─────────────────────────────────────────
+    else:
+        result = (0, 'Sin datos de futuros', 0, fut_name)
+
+    _cache_set(cache_key, result)
+    return result
 
 
 # ═══════════════════════════════════════════════════════════════════
