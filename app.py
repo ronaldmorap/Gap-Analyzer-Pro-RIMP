@@ -1177,8 +1177,6 @@ def calculate_gap_probability(ticker):
         final += 5 if drift > 0.1 else -5 if drift < -0.1 else 0
         final += fut_score * 10
         # StockTwits eliminado — ruido retail sin correlación con gaps
-        # Pre-market: señal directa del gap, máximo impacto
-        final += premarket['pre_score'] * 8 * direction_mult
         final += vol_data['volume_score'] * 5
 
         if gap_room.get('near_resistance') and final >= 50: final -= 8
@@ -1195,6 +1193,8 @@ def calculate_gap_probability(ticker):
 
         final += whale_score * 4 * direction_mult
         final += sec_data['score'] * 3 * direction_mult
+        # Pre-market: señal directa del gap, máximo impacto
+        final += premarket['pre_score'] * 8 * direction_mult
 
         final     = max(15, min(85, final))
         raw_dir   = 'ALCISTA' if final >= 50 else 'BAJISTA'
