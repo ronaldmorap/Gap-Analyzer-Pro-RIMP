@@ -167,7 +167,8 @@
         .lc-signal{font-size:10px;margin-top:5px;font-weight:700;padding:2px 8px;
             border-radius:20px;display:inline-block}
         .lcs-green{background:var(--green-bg);color:var(--green);border:1px solid var(--green-b)}
-        .lcs-green-strong{background:#d1fae5;color:#065f46;border:2px solid var(--green);font-weight:700}
+        .lcs-green-strong{background:#d1fae5;color:#065f46;border:2px solid #059669;font-weight:700;box-shadow:0 0 12px rgba(5,150,105,0.25)}
+        .lcs-green-strong .sig-titulo{font-size:1.15em;letter-spacing:0.01em}
         .lcs-yellow{background:var(--amber-bg);color:var(--amber);border:1px solid var(--amber-b)}
         .lcs-red{background:var(--red-bg);color:var(--red);border:1px solid var(--red-b)}
         .lc-neutral{border-color:var(--border)}
@@ -309,15 +310,13 @@
                 </div>
             </div>
 
-            <!-- Social -->
-            <div class="sig-box" style="margin-bottom:14px">
-                <h3>💬 StockTwits</h3>
-                <div class="soc-row">
-                    <div class="soc-trend" id="socTrend"></div>
-                    <div style="display:flex;align-items:center;gap:7px">
-                        <div class="bar-cont"><div class="bar-fill" id="socBar"></div></div>
-                        <div class="soc-pct" id="socPct"></div>
-                    </div>
+            <!-- Pre-market — confirmación pre-apertura -->
+            <div class="sig-box" style="margin-bottom:14px;border:1px solid var(--blue-b);background:var(--blue-bg)">
+                <h3 style="color:var(--blue)">🌅 Confirmación Pre-Apertura <span style="font-size:11px;font-weight:400;color:var(--muted)">· Consultar a las 14h-15h hora española</span></h3>
+                <div id="preSignal" style="font-size:14px;font-weight:600;margin-top:6px">Sin datos pre-market</div>
+                <div id="preDetail" style="font-size:12px;color:var(--muted);margin-top:4px"></div>
+                <div style="font-size:11px;color:var(--muted);margin-top:8px;font-style:italic">
+                    ℹ️ Pre-market opera 10:00-15:30h. Usa esto para confirmar o cancelar la operación antes de la apertura.
                 </div>
             </div>
 
@@ -344,25 +343,56 @@
             <div class="sec-line"></div>
             <div class="sec-tag" id="accBadge">Sin datos</div>
         </div>
-        <div class="stats-row">
-            <div class="stat-card"><div class="stat-num" id="stTotal">0</div><div class="stat-lbl">Total</div></div>
-            <div class="stat-card"><div class="stat-num" id="stWins"  style="color:var(--green)">0</div><div class="stat-lbl">Aciertos</div></div>
-            <div class="stat-card"><div class="stat-num" id="stLosses"style="color:var(--red)">0</div><div class="stat-lbl">Fallos</div></div>
-            <div class="stat-card"><div class="stat-num" id="stAcc"   style="color:var(--amber)">—</div><div class="stat-lbl">Precisión</div></div>
+
+        <!-- Stats principales -->
+        <div class="stats-row" style="grid-template-columns:repeat(5,1fr)">
+            <div class="stat-card"><div class="stat-num" id="stTotal">0</div><div class="stat-lbl">Total ops</div></div>
+            <div class="stat-card"><div class="stat-num" id="stWins" style="color:var(--green)">0</div><div class="stat-lbl">Aciertos</div></div>
+            <div class="stat-card"><div class="stat-num" id="stLosses" style="color:var(--red)">0</div><div class="stat-lbl">Fallos</div></div>
+            <div class="stat-card"><div class="stat-num" id="stAcc" style="color:var(--amber)">—</div><div class="stat-lbl">Precisión</div></div>
+            <div class="stat-card"><div class="stat-num" id="stPending" style="color:var(--muted)">0</div><div class="stat-lbl">Pendientes</div></div>
         </div>
+
+        <!-- Stats avanzadas -->
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px">
+            <!-- Por ticker -->
+            <div class="sig-box" style="padding:14px">
+                <h3 style="font-size:11px;margin-bottom:10px">📊 ACIERTO POR TICKER</h3>
+                <div id="stByTicker" style="font-size:12px;line-height:1.8;color:var(--text2)">—</div>
+            </div>
+            <!-- Por día -->
+            <div class="sig-box" style="padding:14px">
+                <h3 style="font-size:11px;margin-bottom:10px">📅 ACIERTO POR DÍA</h3>
+                <div id="stByDay" style="font-size:12px;line-height:1.8;color:var(--text2)">—</div>
+            </div>
+            <!-- Por señal -->
+            <div class="sig-box" style="padding:14px">
+                <h3 style="font-size:11px;margin-bottom:10px">🔥 ACIERTO POR SEÑAL</h3>
+                <div id="stBySignal" style="font-size:12px;line-height:1.8;color:var(--text2)">—</div>
+            </div>
+        </div>
+
+        <!-- Formulario nueva operación -->
         <div class="add-trade">
             <h3>Nueva operación</h3>
-            <div class="form-row">
-                <input type="text"   class="form-input" id="trTicker" placeholder="Ticker"  style="width:80px" maxlength="5">
+            <div class="form-row" style="flex-wrap:wrap;gap:8px">
+                <input type="text"   class="form-input" id="trTicker" placeholder="Ticker" style="width:75px" maxlength="5">
                 <select             class="form-select" id="trPred">
                     <option value="ALCISTA">↑ Alcista</option>
                     <option value="BAJISTA">↓ Bajista</option>
                 </select>
-                <input type="number" class="form-input" id="trProb"  placeholder="% prob"  style="width:85px">
-                <input type="text"   class="form-input" id="trNotes" placeholder="Notas opcionales" style="width:180px">
-                <button class="btn btn-dark" onclick="addTrade()" style="padding:8px 18px;font-size:12px">Añadir</button>
+                <input type="number" class="form-input" id="trProb"   placeholder="% prob" style="width:80px" min="50" max="100">
+                <select             class="form-select" id="trSignal">
+                    <option value="fuerte">🔥🔥 Señal Fuerte</option>
+                    <option value="clara">🟢 Señal Clara</option>
+                    <option value="moderada">🟡 Señal Moderada</option>
+                </select>
+                <input type="text"   class="form-input" id="trNotes"  placeholder="Notas" style="flex:1;min-width:120px">
+                <button class="btn btn-dark" onclick="addTrade()" style="padding:8px 18px;font-size:12px">+ Añadir</button>
             </div>
         </div>
+
+        <!-- Lista de operaciones -->
         <div class="trades-list" id="tradesList"></div>
     </div>
 
@@ -493,7 +523,22 @@ function renderResult(d){
         <div class="data-card"><div class="dc-lbl">Overnight Drift 20d</div><div class="dc-val">${dr} ${d.overnight_drift>0?'+':''}${d.overnight_drift}% · ${d.drift_trend}</div></div>
         <div class="data-card"><div class="dc-lbl">Gap Room</div><div class="dc-val">${nr} · +${d.gap_room?.room_up}%</div></div>
         <div class="data-card"><div class="dc-lbl">Volumen</div><div class="dc-val">${d.volume?.volume_signal||'—'}</div></div>
-        <div class="data-card"><div class="dc-lbl">RSI</div><div class="dc-val">${d.rsi_value} ${d.is_fakeout?'⚠️ Fakeout':''}</div></div>
+        <div class="data-card" style="
+            ${d.rsi_value>=75?'border-color:var(--red-b);background:var(--red-bg)':
+              d.rsi_value<=25?'border-color:var(--amber-b);background:var(--amber-bg)':
+              d.is_fakeout?'border-color:var(--amber-b);background:var(--amber-bg)':''}">
+            <div class="dc-lbl">RSI <span style="font-size:10px;color:var(--muted)">· solo informativo</span></div>
+            <div class="dc-val" style="
+                ${d.rsi_value>=75?'color:var(--red)':
+                  d.rsi_value<=25?'color:var(--amber)':
+                  d.is_fakeout?'color:var(--amber)':''}">
+                ${d.rsi_value}
+                ${d.rsi_value>=75?'🔴 Sobrecomprado':
+                  d.rsi_value<=25?'⚠️ Sobrevendido':
+                  d.is_fakeout?'⚠️ Fakeout':'✅ Normal'}
+            </div>
+        </div>
+        ${d.premarket&&d.premarket.pre_available?`<div class="data-card" style="${d.premarket.pre_score>=1?'border-color:var(--green-b);background:var(--green-bg)':d.premarket.pre_score<=-1?'border-color:var(--red-b);background:var(--red-bg)':''}"><div class="dc-lbl">Pre-Market</div><div class="dc-val">${d.premarket.pre_signal||'—'}</div></div>`:''}
         ${d.vix_level?`<div class="data-card" style="${d.vix_level>=30?'border-color:var(--red-b);background:var(--red-bg)':d.vix_level>=25?'border-color:var(--amber-b);background:var(--amber-bg)':''}"><div class="dc-lbl">VIX</div><div class="dc-val" style="${d.vix_level>=30?'color:var(--red)':d.vix_level>=25?'color:var(--amber)':''}">${d.vix_level} ${d.vix_level>=30?'⚠️ Pánico':d.vix_level>=25?'⚠️ Nervioso':'✅ Tranquilo'}</div></div>`:''}
         ${macroCard}
     `;
@@ -525,9 +570,22 @@ function renderResult(d){
     }
 
     // Social
-    document.getElementById('socTrend').textContent=d.social_trend||'Sin datos';
-    document.getElementById('socBar').style.width=(d.bull_pct||50)+'%';
-    document.getElementById('socPct').textContent=`${d.bull_pct||50}% alcistas · ${d.msg_count||0} msgs`;
+    // Pre-market — confirmación pre-apertura
+    const pre = d.premarket || {};
+    const preEl = document.getElementById('preSignal');
+    preEl.textContent = pre.pre_signal || 'Sin datos pre-market';
+    if(pre.pre_score >= 1)       preEl.style.color = 'var(--green)';
+    else if(pre.pre_score <= -1) preEl.style.color = 'var(--red)';
+    else                         preEl.style.color = 'var(--text2)';
+    if(pre.pre_available && pre.pre_price){
+        const chgSign = pre.pre_chg > 0 ? '+' : '';
+        document.getElementById('preDetail').textContent =
+            `Precio pre-market: $${pre.pre_price} · Cambio vs cierre: ${chgSign}${pre.pre_chg}%`;
+    } else {
+        document.getElementById('preDetail').textContent =
+            'Pre-market no disponible ahora — consulta entre 10:00-15:30h';
+    }
+
 
     document.getElementById('resultCard').style.display='block';
 }
@@ -549,7 +607,7 @@ async function loadDashboard(){
                 analyzeStock();
                 window.scrollTo({top:300,behavior:'smooth'});
             };
-            const isStrongGreen = f.color==='green' && f.titulo && f.titulo.includes('FUERTE');
+            const isStrongGreen = f.color==='green' && f.titulo && f.titulo.includes('🔥🔥');
             const sigCls = isStrongGreen ? 'lcs-green-strong' : `lcs-${f.color||'red'}`;
             const sigTxt=f.color==='green'?'OPERAR':f.color==='yellow'?'CUIDADO':'⚠️ CUIDADO';
             const dir=s.raw_direction||'NEUTRAL';
@@ -576,9 +634,14 @@ async function loadDashboard(){
 /* ─── TRADES ─── */
 function registerTrade(direction){
     if(!currentData) return;
-    document.getElementById('trTicker').value=currentData.ticker;
-    document.getElementById('trPred').value=direction;
-    document.getElementById('trProb').value=currentData.probability;
+    document.getElementById('trTicker').value = currentData.ticker;
+    document.getElementById('trPred').value   = direction;
+    document.getElementById('trProb').value   = currentData.probability;
+    // Auto-detectar nivel de señal
+    const titulo = (currentData.ftmo_signal||{}).titulo||'';
+    if(titulo.includes('🔥🔥'))       document.getElementById('trSignal').value='fuerte';
+    else if(titulo.includes('CLARA'))  document.getElementById('trSignal').value='clara';
+    else                               document.getElementById('trSignal').value='moderada';
     window.scrollTo({top:document.body.scrollHeight,behavior:'smooth'});
 }
 
@@ -587,13 +650,17 @@ function addTrade(){
     if(!ticker){alert('Introduce el ticker');return;}
     const trades=loadTradesLS();
     const id=(trades.length?Math.max(...trades.map(t=>t.id)):0)+1;
+    const now=new Date();
+    const dias=['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
     trades.push({
         id, ticker,
         prediction: document.getElementById('trPred').value,
-        probability:document.getElementById('trProb').value,
+        probability:parseInt(document.getElementById('trProb').value)||0,
+        signal_level:document.getElementById('trSignal').value,
         notes:      document.getElementById('trNotes').value,
         result:     'pending',
-        date:       new Date().toLocaleString('es-ES',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'})
+        date:       now.toLocaleString('es-ES',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'}),
+        dow:        dias[now.getDay()]
     });
     saveTradesLS(trades);
     document.getElementById('trTicker').value='';
@@ -611,42 +678,94 @@ function updateTradeResult(id,result){
 }
 
 function deleteTrade(id){
-    if(!confirm('¿Eliminar?')) return;
+    if(!confirm('¿Eliminar esta operación?')) return;
     saveTradesLS(loadTradesLS().filter(x=>x.id!==id));
     renderTrades();
 }
 
+function accStr(w,c){
+    if(!c) return '<span style="color:var(--muted)">—</span>';
+    const p=Math.round(w/c*100);
+    const col=p>=65?'var(--green)':p>=50?'var(--amber)':'var(--red)';
+    return `<span style="color:${col};font-weight:600">${p}%</span> (${w}/${c})`;
+}
+
 function renderTrades(){
     const trades=loadTradesLS();
+    const closed=trades.filter(t=>t.result!=='pending');
     const wins=trades.filter(t=>t.result==='win').length;
     const losses=trades.filter(t=>t.result==='loss').length;
-    const closed=wins+losses;
-    const acc=closed?Math.round(wins/closed*100):0;
+    const pending=trades.filter(t=>t.result==='pending').length;
+    const nc=wins+losses;
+    const acc=nc?Math.round(wins/nc*100):0;
+
+    // Stats principales
     document.getElementById('stTotal').textContent=trades.length;
     document.getElementById('stWins').textContent=wins;
     document.getElementById('stLosses').textContent=losses;
-    document.getElementById('stAcc').textContent=closed?acc+'%':'—';
-    document.getElementById('accBadge').textContent=closed?acc+'% precisión':'Sin datos';
+    document.getElementById('stPending').textContent=pending;
+    document.getElementById('stAcc').textContent=nc?acc+'%':'—';
+    document.getElementById('accBadge').textContent=nc?acc+'% precisión':'Sin datos';
+
+    // Acierto por ticker
+    const byTicker={};
+    closed.forEach(t=>{
+        if(!byTicker[t.ticker]) byTicker[t.ticker]={w:0,c:0};
+        byTicker[t.ticker].c++;
+        if(t.result==='win') byTicker[t.ticker].w++;
+    });
+    const tkHtml=Object.entries(byTicker)
+        .sort((a,b)=>b[1].c-a[1].c)
+        .map(([tk,v])=>`<div style="display:flex;justify-content:space-between"><b>${tk}</b>${accStr(v.w,v.c)}</div>`).join('');
+    document.getElementById('stByTicker').innerHTML=tkHtml||'<span style="color:var(--muted)">Sin datos</span>';
+
+    // Acierto por día de la semana
+    const byDay={};
+    closed.forEach(t=>{
+        const d=t.dow||'?';
+        if(!byDay[d]) byDay[d]={w:0,c:0};
+        byDay[d].c++;
+        if(t.result==='win') byDay[d].w++;
+    });
+    const dayOrder=['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'];
+    const dayHtml=dayOrder.filter(d=>byDay[d])
+        .map(d=>`<div style="display:flex;justify-content:space-between"><b>${d}</b>${accStr(byDay[d].w,byDay[d].c)}</div>`).join('');
+    document.getElementById('stByDay').innerHTML=dayHtml||'<span style="color:var(--muted)">Sin datos</span>';
+
+    // Acierto por nivel de señal
+    const bySignal={fuerte:{w:0,c:0},clara:{w:0,c:0},moderada:{w:0,c:0}};
+    closed.forEach(t=>{
+        const s=t.signal_level||'clara';
+        if(bySignal[s]){bySignal[s].c++;if(t.result==='win')bySignal[s].w++;}
+    });
+    const sigLabels={fuerte:'🔥🔥 Fuerte',clara:'🟢 Clara',moderada:'🟡 Moderada'};
+    const sigHtml=Object.entries(bySignal)
+        .map(([k,v])=>`<div style="display:flex;justify-content:space-between"><b>${sigLabels[k]}</b>${accStr(v.w,v.c)}</div>`).join('');
+    document.getElementById('stBySignal').innerHTML=sigHtml;
+
+    // Lista de operaciones
     const list=document.getElementById('tradesList');
-    if(!trades.length){list.innerHTML='<div class="no-trades">No hay operaciones registradas</div>';return;}
+    if(!trades.length){list.innerHTML='<div class="no-trades">No hay operaciones registradas aún</div>';return;}
     list.innerHTML='';
     [...trades].reverse().forEach(t=>{
         const el=document.createElement('div');
         el.className=`trade-row ${t.result}`;
         const pc=t.prediction==='ALCISTA'?'c-bullish':'c-bearish';
         const pi=t.prediction==='ALCISTA'?'↑':'↓';
+        const sigTag=t.signal_level==='fuerte'?'🔥🔥':t.signal_level==='moderada'?'🟡':'🟢';
         const rp=t.result==='win'?'<span class="rpill pill-win">✓ Acierto</span>'
                 :t.result==='loss'?'<span class="rpill pill-loss">✗ Fallo</span>'
                 :'<span class="rpill pill-pend">⏳ Pendiente</span>';
         const ab=t.result==='pending'
-            ?`<button class="btn-green btn" style="padding:4px 9px;font-size:11px" onclick="updateTradeResult(${t.id},'win')">✓</button>
-              <button class="btn-red  btn" style="padding:4px 9px;font-size:11px" onclick="updateTradeResult(${t.id},'loss')">✗</button>`:'';
-        el.innerHTML=`<div class="tr-ticker">${t.ticker}</div>
+            ?`<button class="btn-green btn" style="padding:4px 9px;font-size:11px" onclick="updateTradeResult(${t.id},'win')" title="Marcar acierto">✓</button>
+              <button class="btn-red btn"   style="padding:4px 9px;font-size:11px" onclick="updateTradeResult(${t.id},'loss')" title="Marcar fallo">✗</button>`:'';
+        el.innerHTML=`
+            <div class="tr-ticker">${t.ticker}</div>
             <div class="tr-meta">
-                <div class="tr-pred ${pc}">${pi} ${t.prediction} · ${t.probability}%</div>
-                <div class="tr-info">${t.date}${t.notes?' · '+t.notes:''}</div>
+                <div class="tr-pred ${pc}">${pi} ${t.prediction} · ${t.probability}% · ${sigTag}</div>
+                <div class="tr-info">${t.dow||''} ${t.date}${t.notes?' · '+t.notes:''}</div>
             </div>
-            <div class="tr-actions">${rp}${ab}<button class="btn-icon" onclick="deleteTrade(${t.id})">✕</button></div>`;
+            <div class="tr-actions">${rp}${ab}<button class="btn-icon" onclick="deleteTrade(${t.id})" title="Eliminar">✕</button></div>`;
         list.appendChild(el);
     });
 }

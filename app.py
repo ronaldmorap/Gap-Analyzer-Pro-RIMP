@@ -618,33 +618,91 @@ def get_futures_sentiment(ticker='AAPL'):
 
 
 # ═══════════════════════════════════════════════════════════════════
-#  SOCIAL — StockTwits
+#  PRE-MARKET — precio y movimiento antes de apertura
 # ═══════════════════════════════════════════════════════════════════
-def get_stocktwits_sentiment(ticker):
+def get_premarket_data(ticker):
+    """
+    Obtiene precio pre-market y % de cambio respecto al cierre anterior.
+    Es el indicador más directo para confirmar el gap del día siguiente.
+    Si el pre-market ya sube 0.8%, el gap alcista está casi confirmado.
+    """
+    cache_key = f'premarket_{ticker}'
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached
+
+    empty = {'pre_price': None, 'pre_chg': 0, 'pre_signal': 'Sin datos pre-market',
+             'pre_score': 0, 'pre_available': False}
     try:
-        resp = requests.get(
-            f'https://api.stocktwits.com/api/2/streams/symbol/{ticker}.json',
-            timeout=7)
-        if resp.status_code != 200:
-            return 0, 'Sin datos', 50, 0
-        messages = resp.json().get('messages', [])
-        if not messages:
-            return 0, 'Sin datos', 50, 0
-        bullish = bearish = 0
-        for msg in messages[:30]:
-            sd = msg.get('entities', {}).get('sentiment', {})
-            if sd:
-                if sd.get('basic') == 'Bullish':  bullish += 1
-                elif sd.get('basic') == 'Bearish': bearish += 1
-        total    = bullish + bearish
-        bull_pct = round((bullish / total) * 100) if total > 0 else 50
-        if   bull_pct >= 65: return  1,   '🟢 Muy alcista',          bull_pct, len(messages)
-        elif bull_pct >= 55: return  0.5, '🟡 Ligeramente alcista',  bull_pct, len(messages)
-        elif bull_pct <= 35: return -1,   '🔴 Muy bajista',          bull_pct, len(messages)
-        elif bull_pct <= 45: return -0.5, '🟠 Ligeramente bajista',  bull_pct, len(messages)
-        return 0, '⚪ Neutral', bull_pct, len(messages)
+        tk   = yf.Ticker(ticker)
+        info = tk.fast_info
+        pre_price   = getattr(info, 'pre_market_price', None)
+        prev_close  = getattr(info, 'previous_close', None) or getattr(info, 'last_price', None)
+
+        if pre_price and prev_close and prev_close > 0:
+            chg   = round((pre_price - prev_close) / prev_close * 100, 2)
+            sign  = '+' if chg > 0 else ''
+            if   chg >= 1.0:  score = 2;  emoji = '🚀'; label = f'Pre-market fuerte alcista {sign}{chg}%'
+            elif chg >= 0.3:  score = 1;  emoji = '🟢'; label = f'Pre-market alcista {sign}{chg}%'
+            elif chg <= -1.0: score = -2; emoji = '🔻'; label = f'Pre-market fuerte bajista {sign}{chg}%'
+            elif chg <= -0.3: score = -1; emoji = '🔴'; label = f'Pre-market bajista {sign}{chg}%'
+            else:             score = 0;  emoji = '⚪'; label = f'Pre-market plano {sign}{chg}%'
+            result = {'pre_price': round(pre_price, 2), 'pre_chg': chg,
+                      'pre_signal': f'{emoji} {label}', 'pre_score': score,
+                      'pre_available': True}
+        else:
+            result = empty
+        _cache_set(cache_key, result)
+        return result
     except Exception:
-        return 0, 'Sin datos StockTwits', 50, 0
+        return empty
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  SHORT INTEREST — presión vendedora institucional
+# ═══════════════════════════════════════════════════════════════════
+def get_short_interest(ticker):
+    """
+    Obtiene el short interest (% acciones vendidas en corto) y short ratio.
+    Alto short interest + buenas noticias = posible short squeeze (gap alcista amplificado).
+    Alto short interest + malas noticias = confirma presión bajista.
+    """
+    cache_key = f'short_{ticker}'
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached
+
+    empty = {'short_pct': None, 'short_ratio': None, 'short_signal': 'Sin datos',
+             'short_score': 0, 'squeeze_risk': False}
+    try:
+        info = yf.Ticker(ticker).info
+        short_pct   = info.get('shortPercentOfFloat')
+        short_ratio = info.get('shortRatio')  # días para cubrir
+
+        if short_pct is not None:
+            short_pct_pct = round(short_pct * 100, 1)
+            squeeze_risk  = short_pct_pct >= 15  # >15% = riesgo de squeeze
+
+            if short_pct_pct >= 20:
+                score  = 0  # neutro — puede ir en cualquier dirección
+                signal = f'⚠️ Short interest muy alto {short_pct_pct}% — riesgo de squeeze'
+            elif short_pct_pct >= 10:
+                score  = 0
+                signal = f'🟡 Short interest elevado {short_pct_pct}% — presión vendedora'
+            else:
+                score  = 0.5  # bajo short interest = entorno más predecible
+                signal = f'✅ Short interest bajo {short_pct_pct}% — entorno limpio'
+
+            ratio_txt = f' · {short_ratio}d para cubrir' if short_ratio else ''
+            result = {'short_pct': short_pct_pct, 'short_ratio': short_ratio,
+                      'short_signal': signal + ratio_txt,
+                      'short_score': score, 'squeeze_risk': squeeze_risk}
+        else:
+            result = empty
+        _cache_set(cache_key, result)
+        return result
+    except Exception:
+        return empty
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -824,7 +882,8 @@ def get_ftmo_signal(probability, raw_direction, futures_warning,
                     vol_signal, rvol,
                     macro_title=None, macro_date=None, macro_time=None,
                     macro_sent=None, vol_pct=0,
-                    vix_level=15.0, is_monday=False):
+                    vix_level=15.0, is_monday=False,
+                    premarket=None):
     """
     Semáforo FTMO con etiquetas específicas y descriptivas en cada señal.
     Verde: opera. Amarillo: reduce tamaño. Rojo: no operar.
@@ -876,14 +935,14 @@ def get_ftmo_signal(probability, raw_direction, futures_warning,
         contra.append(f'⚠️ {index_name} CONTRADICE la dirección ({sign}{fut_change}%) — riesgo de absorción')
 
     # ── 4. RSI + FAKEOUT ──────────────────────────────────────────
-    if is_fakeout:
-        contra.append(f'⚠️ RSI {rsi_val} — zona extrema, gap puede revertirse (fakeout)')
-    elif rsi_val > 60:
-        favor.append(f'RSI {rsi_val} — momentum alcista, zona operable')
-    elif rsi_val < 40:
-        favor.append(f'RSI {rsi_val} — momentum bajista, zona operable')
-    else:
-        favor.append(f'RSI {rsi_val} — zona neutral, operable')
+    # RSI solo actúa en extremos como advertencia — no suma/resta en normal
+    if rsi_val >= 75:
+        contra.append(f'⚠️ RSI {rsi_val} — sobrecomprado, riesgo de fakeout alcista')
+    elif rsi_val <= 25:
+        contra.append(f'⚠️ RSI {rsi_val} — sobrevendido, riesgo de fakeout bajista')
+    elif is_fakeout:
+        contra.append(f'⚠️ RSI {rsi_val} — zona de riesgo, posible reversión del gap')
+    # RSI entre 25-75: solo informativo en tarjeta, no aparece en señales
 
     # ── 5. GAP ROOM / RESISTENCIA ─────────────────────────────────
     if near_resistance and raw_direction == 'ALCISTA':
@@ -981,6 +1040,33 @@ def get_ftmo_signal(probability, raw_direction, futures_warning,
     n_favor  = len(favor)
     n_contra = len(contra)
 
+    # ── PRE-MARKET ────────────────────────────────────────────────
+    if premarket and premarket.get('pre_available'):
+        pre_score = premarket.get('pre_score', 0)
+        pre_sig   = premarket.get('pre_signal', '')
+        if pre_score >= 2:
+            if raw_direction == 'ALCISTA':
+                favor.append(f'🚀 {pre_sig} — confirma gap alcista fuerte')
+            else:
+                contra.append(f'🚀 {pre_sig} — contradice dirección bajista')
+        elif pre_score == 1:
+            if raw_direction == 'ALCISTA':
+                favor.append(f'{pre_sig} — alineado con dirección alcista')
+            else:
+                contra.append(f'{pre_sig} — contradice dirección bajista')
+        elif pre_score <= -2:
+            if raw_direction == 'BAJISTA':
+                favor.append(f'🔻 {pre_sig} — confirma gap bajista fuerte')
+            else:
+                contra.append(f'🔻 {pre_sig} — contradice dirección alcista')
+        elif pre_score == -1:
+            if raw_direction == 'BAJISTA':
+                favor.append(f'{pre_sig} — alineado con dirección bajista')
+            else:
+                contra.append(f'{pre_sig} — contradice dirección alcista')
+        else:
+            favor.append(f'{pre_sig} — sin presión pre-market')
+    
     # ── VIX — volatilidad sistémica del mercado ──────────────────
     if vix_level >= 30:
         contra.append(f'⚠️ VIX {vix_level} — pánico de mercado, volatilidad extrema')
@@ -1011,13 +1097,17 @@ def get_ftmo_signal(probability, raw_direction, futures_warning,
         color  = 'yellow'
         titulo = '🟡 CUIDADO — Señal con poca fuerza'
         desc   = f'Probabilidad {probability}% — por debajo del umbral mínimo. Si operas, tamaño mínimo.'
+    elif n_favor >= 8 and n_contra == 0:
+        color  = 'green'
+        titulo = f'🟢 SEÑAL FUERTE 🔥🔥 — Opera con tamaño completo'
+        desc   = f'{n_favor} señales a favor, {n_contra} en contra. Setup excepcional.'
     elif n_favor >= 6 and n_contra <= 1:
         color  = 'green'
-        titulo = '🟢 SEÑAL CLARA — OPERAR'
-        desc   = f'{n_favor} señales a favor, {n_contra} en contra. Setup limpio.'
+        titulo = '🟢 SEÑAL CLARA — Opera'
+        desc   = f'{n_favor} señales a favor, {n_contra} en contra. Setup sólido.'
     elif n_favor >= 4 and n_contra <= 2:
         color  = 'yellow'
-        titulo = '🟡 SEÑAL MODERADA — Reducir tamaño'
+        titulo = '🟡 SEÑAL MODERADA — Reduce tamaño'
         desc   = f'{n_favor} a favor, {n_contra} en contra. Opera con la mitad del tamaño habitual.'
     else:
         color  = 'red'
@@ -1047,7 +1137,7 @@ def calculate_gap_probability(ticker):
                 ex.submit(get_overnight_drift,      ticker): 'drift',
                 ex.submit(get_gap_room,             ticker): 'room',
                 ex.submit(get_futures_sentiment,    ticker): 'futures',
-                ex.submit(get_stocktwits_sentiment, ticker): 'social',
+                ex.submit(get_premarket_data,       ticker): 'premarket',
                 ex.submit(get_fakeout_detector,     ticker): 'fakeout',
                 ex.submit(get_volume_analysis,      ticker): 'volume',
                 ex.submit(check_high_impact_news, ticker):   'macro_flag',
@@ -1068,7 +1158,7 @@ def calculate_gap_probability(ticker):
         drift, drift_trend, recent_drift, is_monday = results.get('drift') or (0, 'neutral', 0, False)
         gap_room                             = results.get('room') or {'room_up': 5, 'room_down': 5, 'near_resistance': False}
         fut_score, fut_signal, fut_change, idx_name = results.get('futures') or (0, 'Sin datos', 0, 'Índice')
-        soc_score, soc_trend, bull_pct, msg_count   = results.get('social') or (0, 'Sin datos', 50, 0)
+        premarket   = results.get('premarket') or {'pre_price': None, 'pre_chg': 0, 'pre_signal': 'Sin datos pre-market', 'pre_score': 0, 'pre_available': False}
         is_fakeout, fakeout_reason, rsi_val         = results.get('fakeout') or (False, '', 50)
         vol_data                             = results.get('volume') or {'rvol': 1.0, 'volume_signal': 'Sin datos', 'volume_score': 0, 'absorption': False, 'capitulation': False, 'anomaly': False}
         macro_event, macro_reason, macro_date, macro_time, macro_sent = results.get('macro_flag') or (False, None, None, None, None)
@@ -1086,7 +1176,9 @@ def calculate_gap_probability(ticker):
         # Señales independientes de dirección (se calculan antes de saber raw_dir)
         final += 5 if drift > 0.1 else -5 if drift < -0.1 else 0
         final += fut_score * 10
-        final += soc_score * 6
+        # StockTwits eliminado — ruido retail sin correlación con gaps
+        # Pre-market: señal directa del gap, máximo impacto
+        final += premarket['pre_score'] * 8 * direction_mult
         final += vol_data['volume_score'] * 5
 
         if gap_room.get('near_resistance') and final >= 50: final -= 8
@@ -1138,7 +1230,8 @@ def calculate_gap_probability(ticker):
             rvol            = vol_data['rvol'],
             vol_pct         = vol_data.get('price_change_pct', 0),
             vix_level       = vix_level,
-            is_monday       = is_monday
+            is_monday       = is_monday,
+            premarket       = premarket
         )
 
         # Precio actual
@@ -1164,9 +1257,7 @@ def calculate_gap_probability(ticker):
             'futures_change':   fut_change,
             'futures_warning':  fut_warning,
             'index_name':       idx_name,
-            'social_trend':     soc_trend,
-            'bull_pct':         bull_pct,
-            'msg_count':        msg_count,
+
             'is_fakeout':       is_fakeout,
             'fakeout_reason':   fakeout_reason,
             'volume':           vol_data,
@@ -1179,6 +1270,7 @@ def calculate_gap_probability(ticker):
             'macro_time':       macro_time,
             'macro_sent':       macro_sent,
             'vix_level':        vix_level,
+            'premarket':        premarket,
         }
 
     except Exception as e:
@@ -1192,7 +1284,7 @@ def calculate_gap_probability(ticker):
             'gap_room': {'room_up': 5, 'room_down': 5, 'near_resistance': False},
             'futures_signal': 'Sin datos', 'futures_change': 0,
             'futures_warning': False, 'index_name': 'Índice',
-            'social_trend': 'Sin datos', 'bull_pct': 50, 'msg_count': 0,
+            'premarket': {},
             'is_fakeout': False, 'fakeout_reason': '',
             'volume': {'rvol': 1.0, 'volume_signal': 'Sin datos', 'volume_score': 0,
                        'absorption': False, 'capitulation': False, 'anomaly': False},
