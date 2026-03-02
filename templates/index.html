@@ -310,15 +310,7 @@
                 </div>
             </div>
 
-            <!-- Pre-market — confirmación pre-apertura -->
-            <div class="sig-box" style="margin-bottom:14px;border:1px solid var(--blue-b);background:var(--blue-bg)">
-                <h3 style="color:var(--blue)">🌅 Confirmación Pre-Apertura <span style="font-size:11px;font-weight:400;color:var(--muted)">· Consultar a las 14h-15h hora española</span></h3>
-                <div id="preSignal" style="font-size:14px;font-weight:600;margin-top:6px">Sin datos pre-market</div>
-                <div id="preDetail" style="font-size:12px;color:var(--muted);margin-top:4px"></div>
-                <div style="font-size:11px;color:var(--muted);margin-top:8px;font-style:italic">
-                    ℹ️ Pre-market opera 10:00-15:30h. Usa esto para confirmar o cancelar la operación antes de la apertura.
-                </div>
-            </div>
+
 
         </div>
     </div>
@@ -538,7 +530,6 @@ function renderResult(d){
                   d.is_fakeout?'⚠️ Fakeout':'✅ Normal'}
             </div>
         </div>
-        ${d.premarket&&d.premarket.pre_available?`<div class="data-card" style="${d.premarket.pre_score>=1?'border-color:var(--green-b);background:var(--green-bg)':d.premarket.pre_score<=-1?'border-color:var(--red-b);background:var(--red-bg)':''}"><div class="dc-lbl">Pre-Market</div><div class="dc-val">${d.premarket.pre_signal||'—'}</div></div>`:''}
         ${d.vix_level?`<div class="data-card" style="${d.vix_level>=30?'border-color:var(--red-b);background:var(--red-bg)':d.vix_level>=25?'border-color:var(--amber-b);background:var(--amber-bg)':''}"><div class="dc-lbl">VIX</div><div class="dc-val" style="${d.vix_level>=30?'color:var(--red)':d.vix_level>=25?'color:var(--amber)':''}">${d.vix_level} ${d.vix_level>=30?'⚠️ Pánico':d.vix_level>=25?'⚠️ Nervioso':'✅ Tranquilo'}</div></div>`:''}
         ${macroCard}
     `;
@@ -570,21 +561,7 @@ function renderResult(d){
     }
 
     // Social
-    // Pre-market — confirmación pre-apertura
-    const pre = d.premarket || {};
-    const preEl = document.getElementById('preSignal');
-    preEl.textContent = pre.pre_signal || 'Sin datos pre-market';
-    if(pre.pre_score >= 1)       preEl.style.color = 'var(--green)';
-    else if(pre.pre_score <= -1) preEl.style.color = 'var(--red)';
-    else                         preEl.style.color = 'var(--text2)';
-    if(pre.pre_available && pre.pre_price){
-        const chgSign = pre.pre_chg > 0 ? '+' : '';
-        document.getElementById('preDetail').textContent =
-            `Precio pre-market: $${pre.pre_price} · Cambio vs cierre: ${chgSign}${pre.pre_chg}%`;
-    } else {
-        document.getElementById('preDetail').textContent =
-            'Pre-market no disponible ahora — consulta entre 10:00-15:30h';
-    }
+
 
 
     document.getElementById('resultCard').style.display='block';

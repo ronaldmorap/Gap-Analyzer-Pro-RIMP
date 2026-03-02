@@ -622,36 +622,75 @@ def get_futures_sentiment(ticker='AAPL'):
 # ═══════════════════════════════════════════════════════════════════
 def get_premarket_data(ticker):
     """
-    Obtiene precio pre-market y % de cambio respecto al cierre anterior.
-    Es el indicador más directo para confirmar el gap del día siguiente.
-    Si el pre-market ya sube 0.8%, el gap alcista está casi confirmado.
+    Obtiene precio pre-market usando múltiples métodos.
+    Caché corta de 60s para datos frescos durante ventana pre-market.
+    Pre-market americano = 10:00-15:30h hora española.
     """
     cache_key = f'premarket_{ticker}'
-    cached = _cache_get(cache_key)
-    if cached is not None:
-        return cached
+    # Caché más corta para pre-market — datos cambian rápido
+    with _cache_lock:
+        entry = _cache.get(cache_key)
+        if entry and (time.time() - entry['ts']) < 60:
+            return entry['val']
 
     empty = {'pre_price': None, 'pre_chg': 0, 'pre_signal': 'Sin datos pre-market',
              'pre_score': 0, 'pre_available': False}
     try:
-        tk   = yf.Ticker(ticker)
-        info = tk.fast_info
-        pre_price   = getattr(info, 'pre_market_price', None)
-        prev_close  = getattr(info, 'previous_close', None) or getattr(info, 'last_price', None)
+        tk = yf.Ticker(ticker)
+
+        # Método 1: fast_info
+        pre_price  = None
+        prev_close = None
+        try:
+            fi = tk.fast_info
+            pre_price  = getattr(fi, 'pre_market_price', None)
+            prev_close = getattr(fi, 'previous_close', None) or getattr(fi, 'last_price', None)
+        except Exception:
+            pass
+
+        # Método 2: historia 1m pre-market si fast_info falla
+        if not pre_price:
+            try:
+                hist = tk.history(period='1d', interval='1m', prepost=True)
+                if not hist.empty:
+                    now_utc = datetime.utcnow()
+                    # Filtrar solo datos pre-market (antes de 13:30 UTC = 15:30h ES)
+                    pre = hist[hist.index.hour < 14]
+                    if not pre.empty:
+                        pre_price = float(pre['Close'].iloc[-1])
+                        if not prev_close:
+                            # Cierre del día anterior
+                            hist_d = tk.history(period='5d', interval='1d')
+                            if len(hist_d) >= 2:
+                                prev_close = float(hist_d['Close'].iloc[-2])
+            except Exception:
+                pass
+
+        # Método 3: info dict
+        if not pre_price or not prev_close:
+            try:
+                info = tk.info
+                if not pre_price:
+                    pre_price = info.get('preMarketPrice')
+                if not prev_close:
+                    prev_close = info.get('previousClose') or info.get('regularMarketPreviousClose')
+            except Exception:
+                pass
 
         if pre_price and prev_close and prev_close > 0:
-            chg   = round((pre_price - prev_close) / prev_close * 100, 2)
-            sign  = '+' if chg > 0 else ''
+            chg  = round((pre_price - prev_close) / prev_close * 100, 2)
+            sign = '+' if chg > 0 else ''
             if   chg >= 1.0:  score = 2;  emoji = '🚀'; label = f'Pre-market fuerte alcista {sign}{chg}%'
             elif chg >= 0.3:  score = 1;  emoji = '🟢'; label = f'Pre-market alcista {sign}{chg}%'
             elif chg <= -1.0: score = -2; emoji = '🔻'; label = f'Pre-market fuerte bajista {sign}{chg}%'
             elif chg <= -0.3: score = -1; emoji = '🔴'; label = f'Pre-market bajista {sign}{chg}%'
             else:             score = 0;  emoji = '⚪'; label = f'Pre-market plano {sign}{chg}%'
-            result = {'pre_price': round(pre_price, 2), 'pre_chg': chg,
+            result = {'pre_price': round(float(pre_price), 2), 'pre_chg': chg,
                       'pre_signal': f'{emoji} {label}', 'pre_score': score,
                       'pre_available': True}
         else:
             result = empty
+
         _cache_set(cache_key, result)
         return result
     except Exception:
@@ -882,8 +921,7 @@ def get_ftmo_signal(probability, raw_direction, futures_warning,
                     vol_signal, rvol,
                     macro_title=None, macro_date=None, macro_time=None,
                     macro_sent=None, vol_pct=0,
-                    vix_level=15.0, is_monday=False,
-                    premarket=None):
+                    vix_level=15.0, is_monday=False):
     """
     Semáforo FTMO con etiquetas específicas y descriptivas en cada señal.
     Verde: opera. Amarillo: reduce tamaño. Rojo: no operar.
@@ -1137,7 +1175,7 @@ def calculate_gap_probability(ticker):
                 ex.submit(get_overnight_drift,      ticker): 'drift',
                 ex.submit(get_gap_room,             ticker): 'room',
                 ex.submit(get_futures_sentiment,    ticker): 'futures',
-                ex.submit(get_premarket_data,       ticker): 'premarket',
+
                 ex.submit(get_fakeout_detector,     ticker): 'fakeout',
                 ex.submit(get_volume_analysis,      ticker): 'volume',
                 ex.submit(check_high_impact_news, ticker):   'macro_flag',
@@ -1158,7 +1196,7 @@ def calculate_gap_probability(ticker):
         drift, drift_trend, recent_drift, is_monday = results.get('drift') or (0, 'neutral', 0, False)
         gap_room                             = results.get('room') or {'room_up': 5, 'room_down': 5, 'near_resistance': False}
         fut_score, fut_signal, fut_change, idx_name = results.get('futures') or (0, 'Sin datos', 0, 'Índice')
-        premarket   = results.get('premarket') or {'pre_price': None, 'pre_chg': 0, 'pre_signal': 'Sin datos pre-market', 'pre_score': 0, 'pre_available': False}
+
         is_fakeout, fakeout_reason, rsi_val         = results.get('fakeout') or (False, '', 50)
         vol_data                             = results.get('volume') or {'rvol': 1.0, 'volume_signal': 'Sin datos', 'volume_score': 0, 'absorption': False, 'capitulation': False, 'anomaly': False}
         macro_event, macro_reason, macro_date, macro_time, macro_sent = results.get('macro_flag') or (False, None, None, None, None)
@@ -1193,8 +1231,7 @@ def calculate_gap_probability(ticker):
 
         final += whale_score * 4 * direction_mult
         final += sec_data['score'] * 3 * direction_mult
-        # Pre-market: señal directa del gap, máximo impacto
-        final += premarket['pre_score'] * 8 * direction_mult
+
 
         final     = max(15, min(85, final))
         raw_dir   = 'ALCISTA' if final >= 50 else 'BAJISTA'
@@ -1230,8 +1267,7 @@ def calculate_gap_probability(ticker):
             rvol            = vol_data['rvol'],
             vol_pct         = vol_data.get('price_change_pct', 0),
             vix_level       = vix_level,
-            is_monday       = is_monday,
-            premarket       = premarket
+            is_monday       = is_monday
         )
 
         # Precio actual
@@ -1270,7 +1306,6 @@ def calculate_gap_probability(ticker):
             'macro_time':       macro_time,
             'macro_sent':       macro_sent,
             'vix_level':        vix_level,
-            'premarket':        premarket,
         }
 
     except Exception as e:
@@ -1284,7 +1319,7 @@ def calculate_gap_probability(ticker):
             'gap_room': {'room_up': 5, 'room_down': 5, 'near_resistance': False},
             'futures_signal': 'Sin datos', 'futures_change': 0,
             'futures_warning': False, 'index_name': 'Índice',
-            'premarket': {},
+
             'is_fakeout': False, 'fakeout_reason': '',
             'volume': {'rvol': 1.0, 'volume_signal': 'Sin datos', 'volume_score': 0,
                        'absorption': False, 'capitulation': False, 'anomaly': False},
