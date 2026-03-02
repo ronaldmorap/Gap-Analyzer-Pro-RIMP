@@ -1078,33 +1078,6 @@ def get_ftmo_signal(probability, raw_direction, futures_warning,
     n_favor  = len(favor)
     n_contra = len(contra)
 
-    # ── PRE-MARKET ────────────────────────────────────────────────
-    if premarket and premarket.get('pre_available'):
-        pre_score = premarket.get('pre_score', 0)
-        pre_sig   = premarket.get('pre_signal', '')
-        if pre_score >= 2:
-            if raw_direction == 'ALCISTA':
-                favor.append(f'🚀 {pre_sig} — confirma gap alcista fuerte')
-            else:
-                contra.append(f'🚀 {pre_sig} — contradice dirección bajista')
-        elif pre_score == 1:
-            if raw_direction == 'ALCISTA':
-                favor.append(f'{pre_sig} — alineado con dirección alcista')
-            else:
-                contra.append(f'{pre_sig} — contradice dirección bajista')
-        elif pre_score <= -2:
-            if raw_direction == 'BAJISTA':
-                favor.append(f'🔻 {pre_sig} — confirma gap bajista fuerte')
-            else:
-                contra.append(f'🔻 {pre_sig} — contradice dirección alcista')
-        elif pre_score == -1:
-            if raw_direction == 'BAJISTA':
-                favor.append(f'{pre_sig} — alineado con dirección bajista')
-            else:
-                contra.append(f'{pre_sig} — contradice dirección alcista')
-        else:
-            favor.append(f'{pre_sig} — sin presión pre-market')
-    
     # ── VIX — volatilidad sistémica del mercado ──────────────────
     if vix_level >= 30:
         contra.append(f'⚠️ VIX {vix_level} — pánico de mercado, volatilidad extrema')
