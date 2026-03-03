@@ -199,11 +199,24 @@ def get_earnings_info(ticker):
 # ═══════════════════════════════════════════════════════════════════
 #  SEC FORM 4 — insiders reales, gratis, 2 días de delay máximo
 # ═══════════════════════════════════════════════════════════════════
+# Mapa CIK oficial de EDGAR por ticker — evita búsqueda por nombre
+SEC_CIK_MAP = {
+    'AAPL':  '0000320193',
+    'MSFT':  '0000789019',
+    'GOOGL': '0001652044',
+    'AMZN':  '0001018724',
+    'NVDA':  '0001045810',
+    'META':  '0001326801',
+    'TSLA':  '0001318605',
+    'NFLX':  '0001065280',
+    'RACE':  '0001673772',
+}
+
 def get_sec_insider_activity(ticker):
     """
-    Consulta la API pública de la SEC (EDGAR) para obtener transacciones
-    reales de insiders (Form 4) de los últimos 30 días.
-    Completamente gratuito, sin rate limit abusivo, datos verificados legalmente.
+    Consulta la API pública de la SEC (EDGAR) usando el CIK directo.
+    Obtiene Form 4 reales de insiders de los últimos 30 días.
+    Usa submissions API oficial: data.sec.gov/submissions/CIK.json
     """
     cache_key = f'sec_{ticker}'
     cached = _cache_get(cache_key)
@@ -212,80 +225,89 @@ def get_sec_insider_activity(ticker):
 
     empty = {'score': 0, 'signals': [], 'net_shares': 0, 'summary': 'Sin datos SEC'}
 
+    cik = SEC_CIK_MAP.get(ticker)
+    if not cik:
+        _cache_set(cache_key, empty)
+        return empty
+
     try:
-        # Buscar CIK de la empresa
-        search_url = (f'https://efts.sec.gov/LATEST/search-index?q=%22{ticker}%22'
-                      f'&dateRange=custom&startdt={(datetime.utcnow()-timedelta(days=30)).strftime("%Y-%m-%d")}'
-                      f'&enddt={datetime.utcnow().strftime("%Y-%m-%d")}'
-                      f'&forms=4')
-        resp = requests.get(search_url,
+        # API oficial EDGAR submissions — devuelve filings recientes por CIK
+        url  = f'https://data.sec.gov/submissions/{cik}.json'
+        resp = requests.get(url,
                             headers={'User-Agent': 'GapAnalyzerPro contact@example.com'},
-                            timeout=8)
+                            timeout=10)
         if resp.status_code != 200:
             _cache_set(cache_key, empty)
             return empty
 
-        hits = resp.json().get('hits', {}).get('hits', [])
-        if not hits:
-            result = {'score': 0, 'signals': [], 'net_shares': 0,
-                      'summary': 'Sin actividad insider reciente'}
-            _cache_set(cache_key, result)
-            return result
+        data      = resp.json()
+        recent    = data.get('filings', {}).get('recent', {})
+        forms     = recent.get('form', [])
+        dates     = recent.get('filingDate', [])
+        accessions= recent.get('accessionNumber', [])
+        reporters = recent.get('reportingOwner', []) if 'reportingOwner' in recent else []
 
         buys = sells = 0
         signals = []
+        cutoff  = (datetime.utcnow() - timedelta(days=30)).strftime('%Y-%m-%d')
 
-        for hit in hits[:10]:
-            src = hit.get('_source', {})
-            form_type = src.get('form_type', '')
-            if form_type != '4':
+        for i, form in enumerate(forms):
+            if form not in ('4', '4/A'):
                 continue
+            file_date = dates[i] if i < len(dates) else ''
+            if file_date < cutoff:
+                break  # están ordenados por fecha desc, podemos parar
 
-            display_names = src.get('display_names', [])
-            period        = src.get('period_of_report', '')[:10]
-            file_date     = src.get('file_date', '')[:10]
-
-            # Detectar dirección por el display name o descripción
-            names_str = ' '.join(display_names).upper() if display_names else ''
-            desc      = src.get('file_description', '').upper()
-            combined  = names_str + ' ' + desc
-
-            # Solo contar si es reciente (últimos 5 días laborables)
             try:
-                filed_dt = datetime.strptime(file_date, '%Y-%m-%d')
-                days_ago = (datetime.utcnow() - filed_dt).days
-                recency_mult = 2.0 if days_ago <= 3 else 1.0
+                filed_dt  = datetime.strptime(file_date, '%Y-%m-%d')
+                days_ago  = (datetime.utcnow() - filed_dt).days
+                recency_w = 2.0 if days_ago <= 3 else 1.5 if days_ago <= 7 else 1.0
             except Exception:
-                recency_mult = 1.0
+                recency_w = 1.0
 
-            # Leer directamente el XML del filing para obtener shares
-            acc = src.get('accession_no', '').replace('-', '')
-            cik = src.get('entity_id', '')
-            if acc and cik:
+            # Obtener XML del filing para detectar buy/sell real
+            acc_clean = accessions[i].replace('-', '') if i < len(accessions) else ''
+            acc_fmt   = accessions[i] if i < len(accessions) else ''
+            cik_int   = cik.lstrip('0')
+            bought = sold = False
+
+            if acc_clean:
                 try:
-                    xml_url = f'https://www.sec.gov/Archives/edgar/data/{cik}/{acc}/{acc[10:]}-index.htm'
-                    # Usar el filing de forma más ligera — solo contamos buy/sell por ahora
-                    pass
+                    xml_url = (f'https://www.sec.gov/Archives/edgar/data/'
+                               f'{cik_int}/{acc_clean}/{acc_fmt}.txt')
+                    xresp = requests.get(xml_url,
+                                         headers={'User-Agent': 'GapAnalyzerPro contact@example.com'},
+                                         timeout=6)
+                    xtxt = xresp.text.upper()
+                    if any(w in xtxt for w in ['P', 'PURCHASE', 'ACQUISITION']):
+                        bought = True
+                    if any(w in xtxt for w in ['S', 'SALE', 'DISPOSE']):
+                        sold = True
                 except Exception:
+                    # Si no podemos leer el XML, inferir por el índice de filing
                     pass
 
-            # Clasificar como compra o venta según palabras clave en el filing
-            if any(w in combined for w in ['PURCHASE', 'ACQUISITION', 'BUY', 'GRANT']):
+            # Fallback: usar número de filing como proxy (pares=compra, impares=venta aproximado)
+            # Mejor fallback: si no hay info, contar como neutral
+            if bought:
                 buys += 1
                 signals.append({
                     'signal':  '🐋 Insider COMPRA (Form 4)',
-                    'detail':  f'{", ".join(display_names[:2])} · {file_date}',
-                    'points':  round(3 * recency_mult, 1),
+                    'detail':  f'{ticker} insider · {file_date} · hace {days_ago}d',
+                    'points':  round(3.0 * recency_w, 1),
                     'bullish': True
                 })
-            elif any(w in combined for w in ['SALE', 'DISPOSE', 'SELL']):
+            elif sold:
                 sells += 1
                 signals.append({
                     'signal':  '🔴 Insider VENDE (Form 4)',
-                    'detail':  f'{", ".join(display_names[:2])} · {file_date}',
-                    'points':  round(-2 * recency_mult, 1),
+                    'detail':  f'{ticker} insider · {file_date} · hace {days_ago}d',
+                    'points':  round(-2.0 * recency_w, 1),
                     'bullish': False
                 })
+
+            if len(signals) >= 5:
+                break
 
         score = round(sum(s['points'] for s in signals), 1)
 
@@ -293,8 +315,10 @@ def get_sec_insider_activity(ticker):
             summary = f'🟢 {buys} compras insider vs {sells} ventas (últimos 30d)'
         elif sells > buys:
             summary = f'🔴 {sells} ventas insider vs {buys} compras (últimos 30d)'
+        elif buys == 0 and sells == 0:
+            summary = '⚪ Sin actividad insider en 30 días'
         else:
-            summary = f'⚪ Actividad insider neutral ({buys} compras, {sells} ventas)'
+            summary = f'⚪ Actividad neutral ({buys} compras, {sells} ventas)'
 
         result = {'score': score, 'signals': signals[:5],
                   'net_shares': buys - sells, 'summary': summary}
