@@ -233,7 +233,7 @@
         <div class="sec-hdr">
             <h2>Market Leaders</h2>
             <div class="sec-line"></div>
-            <button class="btn btn-outline" style="padding:7px 16px;font-size:12px" onclick="loadDashboard()">↻ Actualizar</button>
+            <button class="btn btn-outline" style="padding:7px 16px;font-size:12px" onclick="_dashCache={};loadDashboard()">↻ Actualizar</button>
         </div>
         <div class="loading" id="loadingDash">Cargando…</div>
         <div class="leaders-grid" id="dashGrid"></div>
@@ -570,11 +570,16 @@ function renderResult(d){
 }
 
 /* ─── DASHBOARD ─── */
+// Almacén de datos del dashboard — evita recalcular al hacer click
+let _dashCache = {};
+
 async function loadDashboard(){
     document.getElementById('loadingDash').style.display='block';
     document.getElementById('dashGrid').innerHTML='';
     try{
         const data=await(await fetch('/dashboard')).json();
+        // Guardar datos completos de cada ticker
+        data.forEach(s=>{ _dashCache[s.ticker]=s; });
         data.forEach(s=>{
             const f=s.ftmo_signal||{};
             const card=document.createElement('div');
@@ -582,8 +587,13 @@ async function loadDashboard(){
             const cardColor = f.color === 'green' ? 'lc-green' : f.color === 'yellow' ? 'lc-yellow' : 'lc-neutral';
             card.className=`leader-card ${cardColor}`;
             card.onclick=()=>{
+                // Usar datos del dashboard directamente — sin recalcular
                 document.getElementById('tickerInput').value=s.ticker;
-                analyzeStock();
+                currentData=s;
+                renderResult(s);
+                document.getElementById('resultCard').style.display='block';
+                document.getElementById('loadingSearch').style.display='none';
+                startAutoRefresh(s.ticker);
                 window.scrollTo({top:300,behavior:'smooth'});
             };
             const isStrongGreen = f.color==='green' && f.titulo && f.titulo.includes('🔥🔥');
