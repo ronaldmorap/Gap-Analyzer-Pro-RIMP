@@ -356,12 +356,15 @@ def get_vix_level():
 
 def get_whale_signals(ticker):
     """
-    Señales institucionales — 3 fuentes en cascada con decay temporal:
-    1. Benzinga RSS     (5-15min)  — más rápida, especializada en mercados
-    2. Yahoo Finance RSS(15-30min) — cobertura amplia
-    3. Google News RSS  (6-24h)    — fallback final
-    Decay: 0-6h=1.0x · 6-24h=0.6x · 24-48h=0.3x · >48h=ignorar
-    TODO: reemplazar por Unusual Whales API cuando esté disponible.
+    Señales institucionales — 3 fuentes en cascada.
+    Clasificación ampliada: upgrades, downgrades, earnings, resultados,
+    shorts, blocks, y noticias relevantes de precio.
+    
+    Lógica de puntuación:
+    - Noticias 0-6h:  peso 1.0x — puntuación completa
+    - Noticias 6-24h: peso 0.6x — parcialmente descontada
+    - Noticias 24-48h: peso 0.3x — mostrar pero no puntuar fuerte
+    - Noticias >48h:  peso 0.0x — mostrar con fecha, no puntuar
     """
     cache_key = f'whale_{ticker}'
     cached = _cache_get(cache_key)
@@ -371,163 +374,188 @@ def get_whale_signals(ticker):
     score, signals = 0, []
     seen_titles = set()
 
-    LABEL_MAP = {
-        'UPGRADE':  '🏦 Banco UPGRADE',
-        'DOWNGRADE':'🏦 Banco DOWNGRADE',
-        'SHORT':    '⚠️ SHORT SELLER',
-        'BLOCK':    '🐋 Block Trade / Insider'
-    }
-
     def _age_hours(pub_str):
         try:
             if not pub_str or not pub_str.strip():
-                return 999  # sin fecha = ignorar
+                return 999
             import calendar as c
             dt = parsedate_to_datetime(pub_str)
             ts = c.timegm(dt.utctimetuple())
             h  = (datetime.utcnow() - datetime.utcfromtimestamp(ts)).total_seconds() / 3600
-            # Sanity check: si es negativo o >720h (30 días) algo falló
             if h < 0 or h > 720:
                 return 999
             return h
         except Exception:
-            return 999  # error de parse = ignorar, no mostrar <1h falso
+            return 999
 
     def _age_weight(h):
+        """Peso por antigüedad. Noticias >48h no puntúan pero se muestran."""
         if h <= 6:    return 1.0
         elif h <= 24: return 0.6
         elif h <= 48: return 0.3
-        return 0.0
+        elif h <= 96: return 0.0  # mostrar sin puntuar hasta 4 días
+        return None  # >4 días: ignorar completamente
 
     def _age_label(h):
         if h < 1:      return 'hace <1h'
         elif h < 24:   return f'hace {int(h)}h'
         elif h < 48:   return f'hace {int(h)}h ·0.6x'
-        else:          return f'hace {int(h)}h ·0.3x'
+        elif h < 96:   return f'hace {int(h)}h · sin puntos'
+        else:          return f'hace {int(h)}h'
 
     def _classify(title):
+        """
+        Clasificación ampliada — captura noticias institucionales reales.
+        Devuelve (tipo, puntos_base, es_alcista)
+        """
         tl = title.lower()
-        if any(w in tl for w in ['upgrade','outperform','overweight','strong buy',
-                                   'buy rating','raises price target','raises pt','price target increase']):
-            return 'UPGRADE', 1.5
-        elif any(w in tl for w in ['downgrade','underperform','underweight','sell rating',
-                                    'cuts price target','lowers pt','price target cut']):
-            return 'DOWNGRADE', -1.5
-        elif any(w in tl for w in ['hindenburg','short seller','fraud','citron','muddy waters','short report']):
-            return 'SHORT', -3.0
-        elif any(w in tl for w in ['block trade','insider buy','purchased shares','insider purchase','insider buying']):
-            return 'BLOCK', 2.0
-        return None, 0
 
-    def _process_items(items, source_tag=''):
-        """Procesa items RSS y añade señales al score/signals."""
-        for item in items:
-            pub   = item.find('pubDate') or item.find('pubdate')
-            pub   = pub.text if pub is not None else ''
-            title_el = item.find('title')
-            title = title_el.text if title_el is not None else ''
-            if not title or title in seen_titles:
-                continue
-            seen_titles.add(title)
-            h     = _age_hours(pub)
-            age_w = _age_weight(h)
-            if age_w == 0.0:
-                continue
-            kind, base_pts = _classify(title)
-            if kind:
-                pts = round(base_pts * age_w, 1)
-                score_delta = pts
-                tag = f' [{source_tag}]' if source_tag else ''
-                signals.append({
-                    'signal': LABEL_MAP[kind],
-                    'detail': f'{title[:70]} · {_age_label(h)}{tag}',
-                    'points': pts
-                })
-                return score_delta  # devuelve para acumular fuera
-        return 0
+        # Analistas — upgrades
+        if any(w in tl for w in ['upgrade', 'outperform', 'overweight', 'strong buy',
+                                   'buy rating', 'raises price target', 'raises pt',
+                                   'price target increase', 'initiates', 'starts coverage',
+                                   'positive catalyst', 'top pick']):
+            return 'UPGRADE', 1.5, True
 
-    # ── FUENTE 1: Benzinga RSS (5-15min) ──────────────────────────
-    try:
-        bz_url = f'https://www.benzinga.com/stock/{ticker.lower()}/feed'
-        root = ET.fromstring(requests.get(bz_url, timeout=7,
-            headers={'User-Agent': 'Mozilla/5.0 (compatible; GapAnalyzer/1.0)'}).content)
-        for item in root.findall('.//item')[:15]:
-            pub   = item.find('pubDate') or item.find('pubdate')
-            pub   = pub.text if pub is not None else ''
-            title_el = item.find('title')
-            title = title_el.text if title_el is not None else ''
-            if not title or title in seen_titles: continue
-            seen_titles.add(title)
-            h     = _age_hours(pub)
-            age_w = _age_weight(h)
-            if age_w == 0.0: continue
-            kind, base_pts = _classify(title)
-            if kind:
-                pts = round(base_pts * age_w, 1)
-                score += pts
-                signals.append({'signal': LABEL_MAP[kind],
-                                'detail': f'{title[:70]} · {_age_label(h)} [BZ]',
-                                'points': pts})
-    except Exception:
-        pass
+        # Analistas — downgrades
+        if any(w in tl for w in ['downgrade', 'underperform', 'underweight', 'sell rating',
+                                   'cuts price target', 'lowers pt', 'price target cut',
+                                   'reduce', 'cautious', 'negative catalyst']):
+            return 'DOWNGRADE', -1.5, False
 
-    # ── FUENTE 2: Yahoo Finance RSS (15-30min) ────────────────────
-    try:
-        yf_url = f'https://feeds.finance.yahoo.com/rss/2.0/headline?s={ticker}&region=US&lang=en-US'
-        root = ET.fromstring(requests.get(yf_url, timeout=7,
-            headers={'User-Agent': 'Mozilla/5.0'}).content)
-        for item in root.findall('.//item')[:15]:
-            pub   = item.find('pubDate') or item.find('pubdate')
-            pub   = pub.text if pub is not None else ''
-            title_el = item.find('title')
-            title = title_el.text if title_el is not None else ''
-            if not title or title in seen_titles: continue
-            seen_titles.add(title)
-            h     = _age_hours(pub)
-            age_w = _age_weight(h)
-            if age_w == 0.0: continue
-            kind, base_pts = _classify(title)
-            if kind:
-                pts = round(base_pts * age_w, 1)
-                score += pts
-                signals.append({'signal': LABEL_MAP[kind],
-                                'detail': f'{title[:70]} · {_age_label(h)} [YF]',
-                                'points': pts})
-    except Exception:
-        pass
+        # Short sellers
+        if any(w in tl for w in ['hindenburg', 'short seller', 'fraud', 'citron',
+                                   'muddy waters', 'short report', 'accounting irregularities']):
+            return 'SHORT', -3.0, False
 
-    # ── FUENTE 3: Google News RSS (6-24h) — fallback final ────────
-    if not signals:
-        queries = [
-            f'{ticker}+Goldman+OR+Morgan+Stanley+OR+JPMorgan+upgrade+OR+downgrade',
-            f'{ticker}+short+seller+OR+hindenburg+OR+citron+OR+muddy+waters',
-            f'{ticker}+block+trade+OR+insider+buying+OR+insider+purchase'
-        ]
-        for q in queries:
-            try:
-                root = ET.fromstring(requests.get(
-                    f'https://news.google.com/rss/search?q={q}&hl=en-US&gl=US&ceid=US:en',
-                    timeout=6).content)
-                for item in root.findall('.//item')[:5]:
-                    pub   = item.find('pubDate').text or ''
-                    title_el = item.find('title')
-                    title = title_el.text if title_el is not None else ''
-                    if not title or title in seen_titles: continue
-                    seen_titles.add(title)
-                    h     = _age_hours(pub)
-                    age_w = _age_weight(h)
-                    if age_w == 0.0: continue
-                    kind, base_pts = _classify(title)
-                    if kind:
-                        pts = round(base_pts * age_w, 1)
-                        score += pts
-                        signals.append({'signal': LABEL_MAP[kind],
-                                        'detail': f'{title[:70]} · {_age_label(h)} [GN]',
-                                        'points': pts})
-            except Exception:
-                continue
+        # Block trades / insiders
+        if any(w in tl for w in ['block trade', 'insider buy', 'purchased shares',
+                                   'insider purchase', 'insider buying', 'bought shares']):
+            return 'BLOCK_BUY', 2.0, True
 
-    result = round(score, 1), signals[:6]
+        if any(w in tl for w in ['insider sell', 'insider sold', 'sold shares', 'insider selling']):
+            return 'BLOCK_SELL', -1.5, False
+
+        # Resultados / Earnings
+        if any(w in tl for w in ['beats', 'beat estimates', 'beat expectations',
+                                   'earnings beat', 'revenue beat', 'tops estimates',
+                                   'record revenue', 'record earnings', 'strong results']):
+            return 'EARNINGS_BEAT', 2.0, True
+
+        if any(w in tl for w in ['misses', 'miss estimates', 'miss expectations',
+                                   'earnings miss', 'revenue miss', 'disappoints',
+                                   'weak results', 'cuts guidance', 'lowers guidance']):
+            return 'EARNINGS_MISS', -2.0, False
+
+        # Noticias positivas de negocio
+        if any(w in tl for w in ['partnership', 'contract', 'deal', 'acquisition',
+                                   'buyback', 'dividend increase', 'new product',
+                                   'regulatory approval', 'fda approval']):
+            return 'POSITIVE_NEWS', 1.0, True
+
+        # Noticias negativas de negocio
+        if any(w in tl for w in ['lawsuit', 'investigation', 'fine', 'penalty',
+                                   'recall', 'layoffs', 'job cuts', 'warning',
+                                   'probe', 'subpoena', 'antitrust']):
+            return 'NEGATIVE_NEWS', -1.0, False
+
+        return None, 0, None
+
+    LABEL_MAP = {
+        'UPGRADE':       '🏦 Analista UPGRADE',
+        'DOWNGRADE':     '🏦 Analista DOWNGRADE',
+        'SHORT':         '⚠️ SHORT SELLER',
+        'BLOCK_BUY':     '🐋 Insider COMPRA',
+        'BLOCK_SELL':    '🔴 Insider VENDE',
+        'EARNINGS_BEAT': '💚 Resultados SUPERIORES',
+        'EARNINGS_MISS': '🔴 Resultados INFERIORES',
+        'POSITIVE_NEWS': '📰 Noticia positiva',
+        'NEGATIVE_NEWS': '📰 Noticia negativa',
+    }
+
+    def _process_rss(url, source_tag, max_items=15, timeout=7):
+        """Procesa un feed RSS y devuelve señales encontradas."""
+        nonlocal score
+        try:
+            root = ET.fromstring(requests.get(url, timeout=timeout,
+                headers={'User-Agent': 'Mozilla/5.0 (compatible; GapAnalyzer/1.0)'}).content)
+            for item in root.findall('.//item')[:max_items]:
+                pub_el   = item.find('pubDate') or item.find('pubdate')
+                pub      = pub_el.text if pub_el is not None else ''
+                title_el = item.find('title')
+                title    = title_el.text.strip() if title_el is not None and title_el.text else ''
+                if not title or title in seen_titles:
+                    continue
+                seen_titles.add(title)
+                h     = _age_hours(pub)
+                age_w = _age_weight(h)
+                if age_w is None:
+                    continue  # >4 días, ignorar
+                kind, base_pts, _ = _classify(title)
+                if kind:
+                    pts = round(base_pts * age_w, 1)
+                    score += pts  # noticias >48h suman 0 pero aparecen
+                    signals.append({
+                        'signal': LABEL_MAP[kind],
+                        'detail': f'{title[:75]} · {_age_label(h)} [{source_tag}]',
+                        'points': pts,
+                        'hours':  h
+                    })
+        except Exception:
+            pass
+
+    # ── FUENTE 1: Yahoo Finance RSS (más fiable desde servidor) ──────
+    _process_rss(
+        f'https://feeds.finance.yahoo.com/rss/2.0/headline?s={ticker}&region=US&lang=en-US',
+        'YF', max_items=20)
+
+    # ── FUENTE 2: Benzinga RSS ────────────────────────────────────────
+    _process_rss(
+        f'https://www.benzinga.com/stock/{ticker.lower()}/feed',
+        'BZ', max_items=15)
+
+    # ── FUENTE 3: Google News — queries específicas ───────────────────
+    gn_queries = [
+        f'{ticker} stock analyst upgrade downgrade price target',
+        f'{ticker} earnings results beat miss guidance',
+        f'{ticker} insider buying selling block trade',
+    ]
+    for q in gn_queries:
+        if len(signals) >= 8:
+            break
+        try:
+            root = ET.fromstring(requests.get(
+                f'https://news.google.com/rss/search?q={q}&hl=en-US&gl=US&ceid=US:en',
+                timeout=6).content)
+            for item in root.findall('.//item')[:6]:
+                pub_el   = item.find('pubDate')
+                pub      = pub_el.text if pub_el is not None else ''
+                title_el = item.find('title')
+                title    = title_el.text.strip() if title_el is not None and title_el.text else ''
+                if not title or title in seen_titles:
+                    continue
+                seen_titles.add(title)
+                h     = _age_hours(pub)
+                age_w = _age_weight(h)
+                if age_w is None:
+                    continue
+                kind, base_pts, _ = _classify(title)
+                if kind:
+                    pts = round(base_pts * age_w, 1)
+                    score += pts
+                    signals.append({
+                        'signal': LABEL_MAP[kind],
+                        'detail': f'{title[:75]} · {_age_label(h)} [GN]',
+                        'points': pts,
+                        'hours':  h
+                    })
+        except Exception:
+            continue
+
+    # Ordenar por más recientes primero
+    signals.sort(key=lambda x: x.get('hours', 999))
+
+    result = round(score, 1), signals[:8]
     _cache_set(cache_key, result)
     return result
 
