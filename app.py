@@ -514,20 +514,24 @@ def get_whale_signals(ticker):
         f'https://www.benzinga.com/stock/{ticker.lower()}/feed',
         'BZ', max_items=15)
 
-    # ── FUENTE 3: Google News — queries específicas ───────────────────
+    # ── FUENTE 3: Google News — máxima cobertura ────────────────────
+    # 6 queries distintas para capturar todo tipo de noticias relevantes
     gn_queries = [
         f'{ticker} stock analyst upgrade downgrade price target',
-        f'{ticker} earnings results beat miss guidance',
-        f'{ticker} insider buying selling block trade',
+        f'{ticker} earnings results beat miss revenue guidance',
+        f'{ticker} insider buying selling block trade institutional',
+        f'{ticker} stock news today market',
+        f'{ticker} partnership deal acquisition contract buyback',
+        f'{ticker} lawsuit investigation fine penalty warning layoffs',
     ]
     for q in gn_queries:
-        if len(signals) >= 8:
+        if len(signals) >= 12:
             break
         try:
             root = ET.fromstring(requests.get(
                 f'https://news.google.com/rss/search?q={q}&hl=en-US&gl=US&ceid=US:en',
                 timeout=6).content)
-            for item in root.findall('.//item')[:6]:
+            for item in root.findall('.//item')[:8]:
                 pub_el   = item.find('pubDate')
                 pub      = pub_el.text if pub_el is not None else ''
                 title_el = item.find('title')
@@ -552,10 +556,10 @@ def get_whale_signals(ticker):
         except Exception:
             continue
 
-    # Ordenar por más recientes primero
-    signals.sort(key=lambda x: x.get('hours', 999))
+    # Ordenar: más recientes primero, luego por puntuación
+    signals.sort(key=lambda x: (x.get('hours', 999), -abs(x.get('points', 0))))
 
-    result = round(score, 1), signals[:8]
+    result = round(score, 1), signals[:10]
     _cache_set(cache_key, result)
     return result
 
@@ -1427,6 +1431,16 @@ def index():
 @app.route('/analyze', methods=['POST'])
 def analyze():
     ticker = request.json.get('ticker', '').upper()
+    # Limpiar caché del ticker específico para datos frescos
+    # (excepto SEC Form 4 que solo cambia 2 veces/mes)
+    with _cache_lock:
+        keys_to_clear = [k for k in _cache if (
+            ticker.lower() in k.lower() or
+            k.startswith('vix') or
+            k.startswith('futures_')
+        ) and not k.startswith('sec_')]
+        for k in keys_to_clear:
+            _cache.pop(k, None)
     return jsonify(calculate_gap_probability(ticker))
 
 @app.route('/dashboard')
