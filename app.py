@@ -13,15 +13,34 @@ import time
 
 app = Flask(__name__)
 
-# ── CACHÉ EN MEMORIA ──────────────────────────────────────────────
+# ── CACHÉ EN MEMORIA CON TTL DIFERENCIADO ────────────────────────
 _cache      = {}
 _cache_lock = threading.Lock()
-CACHE_TTL   = 90  # segundos
+
+# TTL por tipo de dato — datos rápidos se refrescan más seguido
+CACHE_TTL_MAP = {
+    'futures':       30,   # futuros: 30s — tiempo real
+    'whale':         120,  # ballenas: 2min — noticias cambian poco
+    'high_impact':   60,   # macro noticias: 1min
+    'vix':           30,   # VIX: 30s — tiempo real
+    'volume':        60,   # volumen: 1min
+    'drift':         300,  # drift: 5min — cambia poco
+    'sec_':          3600, # SEC Form 4: 1h — solo 2 veces al mes
+    'hist_':         3600, # histórico: 1h — no cambia en el día
+    'earnings':      3600, # earnings: 1h
+    'default':       90    # resto: 90s
+}
+
+def _get_ttl(key):
+    for prefix, ttl in CACHE_TTL_MAP.items():
+        if key.startswith(prefix):
+            return ttl
+    return CACHE_TTL_MAP['default']
 
 def _cache_get(key):
     with _cache_lock:
         entry = _cache.get(key)
-        if entry and (time.time() - entry['ts']) < CACHE_TTL:
+        if entry and (time.time() - entry['ts']) < _get_ttl(key):
             return entry['val']
     return None
 
@@ -57,9 +76,28 @@ INVESTOR_URLS = {
 }
 
 HIGH_IMPACT_KEYWORDS = [
+    # Macro económico
     'CPI', 'NFP', 'Non-Farm Payroll', 'FOMC', 'GDP',
-    'Federal Reserve', 'interest rate decision', 'inflation report', 'jobs report'
+    'Federal Reserve', 'interest rate decision', 'inflation report', 'jobs report',
+    'PCE', 'retail sales', 'unemployment rate',
+    # Geopolítica y aranceles — mueven mercado por miedo sistémico
+    'tariff', 'tariffs', 'trade war', 'trade deal',
+    'Trump tariff', 'Trump tax', 'sanctions', 'embargo',
+    'war', 'invasion', 'military strike', 'escalation',
+    'NATO', 'Ukraine', 'Russia', 'China trade',
+    'geopolitical', 'nuclear', 'oil embargo',
+    # Miedo sistémico
+    'market crash', 'recession', 'bank failure', 'credit crisis',
+    'debt ceiling', 'government shutdown', 'default'
 ]
+
+# Palabras positivas para geopolítica
+GEO_POSITIVE = ['deal', 'ceasefire', 'peace', 'agreement', 'resolved',
+                 'lifted', 'cut tariff', 'trade agreement', 'stimulus']
+# Palabras negativas para geopolítica  
+GEO_NEGATIVE = ['war', 'invasion', 'tariff', 'sanction', 'embargo',
+                 'crash', 'recession', 'failure', 'default', 'shutdown',
+                 'escalat', 'nuclear', 'strike', 'attack']
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -318,12 +356,18 @@ def get_whale_signals(ticker):
 
     def _age_hours(pub_str):
         try:
+            if not pub_str or not pub_str.strip():
+                return 999  # sin fecha = ignorar
             import calendar as c
             dt = parsedate_to_datetime(pub_str)
             ts = c.timegm(dt.utctimetuple())
-            return (datetime.utcnow() - datetime.utcfromtimestamp(ts)).total_seconds() / 3600
+            h  = (datetime.utcnow() - datetime.utcfromtimestamp(ts)).total_seconds() / 3600
+            # Sanity check: si es negativo o >720h (30 días) algo falló
+            if h < 0 or h > 720:
+                return 999
+            return h
         except Exception:
-            return 0
+            return 999  # error de parse = ignorar, no mostrar <1h falso
 
     def _age_weight(h):
         if h <= 6:    return 1.0
@@ -332,10 +376,10 @@ def get_whale_signals(ticker):
         return 0.0
 
     def _age_label(h):
-        if h < 1:     return 'hace <1h'
-        elif h <= 6:  return f'hace {int(h)}h'
-        elif h <= 24: return f'hace {int(h)}h ·0.6x'
-        else:         return f'hace {int(h)}h ·0.3x'
+        if h < 1:      return 'hace <1h'
+        elif h < 24:   return f'hace {int(h)}h'
+        elif h < 48:   return f'hace {int(h)}h ·0.6x'
+        else:          return f'hace {int(h)}h ·0.3x'
 
     def _classify(title):
         tl = title.lower()
@@ -512,9 +556,20 @@ def check_high_impact_news(ticker='AAPL'):
                         continue
                     if is_nasdaq_news and is_nyse_ticker:
                         continue
-                    # Determinar sentimiento de la noticia
-                    positive_words = ['SURGE', 'RALLY', 'GAIN', 'RISE', 'JUMP', 'SOAR', 'BOOST', 'UP', 'HIGH', 'STRONG', 'BEAT', 'RECORD']
-                    negative_words = ['SLIDE', 'FALL', 'DROP', 'PLUNGE', 'CRASH', 'DECLINE', 'DOWN', 'WEAK', 'MISS', 'LOSS', 'FEAR', 'SELL', 'INFLATION', 'HOT']
+                    # Sentimiento ampliado: económico + geopolítico
+                    positive_words = [
+                        'SURGE', 'RALLY', 'GAIN', 'RISE', 'JUMP', 'SOAR', 'BOOST',
+                        'STRONG', 'BEAT', 'RECORD', 'DEAL', 'CEASEFIRE', 'PEACE',
+                        'AGREEMENT', 'RESOLVED', 'LIFTED', 'STIMULUS', 'CUT TARIFF',
+                        'TRADE AGREEMENT', 'RECOVERY', 'GROWTH'
+                    ]
+                    negative_words = [
+                        'SLIDE', 'FALL', 'DROP', 'PLUNGE', 'CRASH', 'DECLINE',
+                        'WEAK', 'MISS', 'LOSS', 'FEAR', 'INFLATION', 'HOT',
+                        'WAR', 'INVASION', 'TARIFF', 'SANCTION', 'EMBARGO',
+                        'RECESSION', 'FAILURE', 'DEFAULT', 'SHUTDOWN', 'ESCALAT',
+                        'NUCLEAR', 'STRIKE', 'ATTACK', 'CONFLICT', 'TENSION'
+                    ]
                     pos = sum(1 for w in positive_words if w in title_check)
                     neg = sum(1 for w in negative_words if w in title_check)
                     sentimiento = 'positivo' if pos > neg else 'negativo' if neg > pos else 'neutro'
@@ -551,17 +606,25 @@ def get_futures_sentiment(ticker='AAPL'):
         return cached
 
     def _get_chg(tk):
-        """Calcula cambio % últimos 30min para un ticker."""
-        try:
-            hist = yf.Ticker(tk).history(period='2d', interval='5m')
-            if len(hist) < 6:
-                return None
-            last30 = hist.tail(6)
-            return round(float(
-                (last30['Close'].iloc[-1] - last30['Close'].iloc[0])
-                / last30['Close'].iloc[0] * 100), 3)
-        except Exception:
-            return None
+        """
+        Calcula cambio % últimos 30min.
+        Usa prepost=True para capturar futuros nocturnos (21:50h análisis).
+        Fallback sin prepost si falla.
+        """
+        for prepost in [True, False]:
+            try:
+                hist = yf.Ticker(tk).history(
+                    period='2d', interval='5m', prepost=prepost)
+                if hist.empty or len(hist) < 6:
+                    continue
+                last30 = hist.tail(6)
+                chg = round(float(
+                    (last30['Close'].iloc[-1] - last30['Close'].iloc[0])
+                    / last30['Close'].iloc[0] * 100), 3)
+                return chg
+            except Exception:
+                continue
+        return None
 
     fut_chg = _get_chg(fut_tk)
     idx_chg = _get_chg(idx_tk)

@@ -174,8 +174,9 @@
         .lc-neutral{border-color:var(--border)}
 
         /* TRADES */
-        .stats-row{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px}
-        @media(max-width:600px){.stats-row{grid-template-columns:repeat(2,1fr)}}
+        .stats-row{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:16px}
+        @media(max-width:700px){.stats-row{grid-template-columns:repeat(3,1fr) !important}}
+        @media(max-width:480px){.stats-row{grid-template-columns:repeat(2,1fr) !important;gap:6px}}
         .stat-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);
             padding:16px;text-align:center;box-shadow:var(--sh-sm)}
         .stat-num{font-size:30px;font-weight:800;letter-spacing:-1px}
@@ -243,7 +244,7 @@
         <div class="sec-hdr">
             <h2>Análisis de Gap</h2>
             <div class="sec-line"></div>
-            <div class="sec-tag">Tiempo real</div>
+            <div class="sec-tag">Tiempo real</div><span id="autoRefreshTs" style="font-size:10px;color:var(--muted);margin-left:8px"></span>
         </div>
         <div class="search-box">
             <p>Introduce el ticker para ver si vale la pena operar mañana</p>
@@ -337,7 +338,7 @@
         </div>
 
         <!-- Stats principales -->
-        <div class="stats-row" style="grid-template-columns:repeat(5,1fr)">
+        <div class="stats-row" style="grid-template-columns:repeat(5,1fr);overflow:hidden">
             <div class="stat-card"><div class="stat-num" id="stTotal">0</div><div class="stat-lbl">Total ops</div></div>
             <div class="stat-card"><div class="stat-num" id="stWins" style="color:var(--green)">0</div><div class="stat-lbl">Aciertos</div></div>
             <div class="stat-card"><div class="stat-num" id="stLosses" style="color:var(--red)">0</div><div class="stat-lbl">Fallos</div></div>
@@ -456,6 +457,7 @@ async function analyzeStock(){
         })).json();
         currentData=data;
         renderResult(data);
+        startAutoRefresh(data.ticker);
     }catch(e){alert('Error al analizar.');}
     document.getElementById('loadingSearch').style.display='none';
 }
@@ -508,7 +510,7 @@ function renderResult(d){
             ${d.macro_date?`<div style="font-size:10px;color:var(--muted);margin-top:3px">${d.macro_date} ${d.macro_time||''}</div>`:''}
         </div>` : '';
     dg.innerHTML=`
-        <div class="data-card" style="${d.futures_signal&&d.futures_signal.includes('DIVERGENCIA')?'border-color:var(--amber-b);background:var(--amber-bg)':d.futures_signal&&d.futures_signal.includes('CONFIRMACIÓN')?'border-color:var(--green-b);background:var(--green-bg)':''}">
+        <div id="futuresCard" class="data-card" style="${d.futures_signal&&d.futures_signal.includes('DIVERGENCIA')?'border-color:var(--amber-b);background:var(--amber-bg)':d.futures_signal&&d.futures_signal.includes('CONFIRMACIÓN')?'border-color:var(--green-b);background:var(--green-bg)':''}">
             <div class="dc-lbl">${d.futures_signal&&d.futures_signal.includes('DIVERGENCIA')?'⚠️ Futuros vs Índice':d.futures_signal&&d.futures_signal.includes('CONFIRMACIÓN')?'✅ Futuros + Índice':`${d.index_name||'Futuros'} 30min`}</div>
             <div class="dc-val" style="${d.futures_signal&&d.futures_signal.includes('DIVERGENCIA')?'color:var(--amber)':''}">${d.futures_signal||'—'}</div>
         </div>
@@ -752,6 +754,49 @@ document.getElementById('tickerInput').addEventListener('keypress',e=>{if(e.key=
 loadEarnings();
 loadDashboard();
 renderTrades();
+
+// Auto-refresco futuros y señales — cada 30s si hay análisis activo
+let _autoRefreshTicker = null;
+let _autoRefreshInterval = null;
+
+function startAutoRefresh(ticker){
+    _autoRefreshTicker = ticker;
+    if(_autoRefreshInterval) clearInterval(_autoRefreshInterval);
+    _autoRefreshInterval = setInterval(()=>{
+        if(!_autoRefreshTicker) return;
+        // Refrescar solo futuros y datos rápidos sin recargar todo
+        fetch('/analyze', {
+            method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({ticker: _autoRefreshTicker})
+        })
+        .then(r=>r.json())
+        .then(d=>{
+            if(!d || d.error) return;
+            // Actualizar solo la tarjeta de futuros
+            const futEl = document.getElementById('futuresCard');
+            if(futEl && d.futures_signal){
+                futEl.querySelector('.dc-val').textContent = d.futures_signal;
+            }
+            // Actualizar VIX
+            const vixEl = document.getElementById('vixCard');
+            if(vixEl && d.vix_level){
+                const vix = d.vix_level;
+                vixEl.querySelector('.dc-val').textContent =
+                    `${vix} ${vix>=30?'⚠️ Pánico':vix>=25?'⚠️ Nervioso':'✅ Tranquilo'}`;
+            }
+            // Actualizar timestamp de refresco
+            const tsEl = document.getElementById('autoRefreshTs');
+            if(tsEl) tsEl.textContent = `↻ ${new Date().toLocaleTimeString('es-ES',{hour:'2-digit',minute:'2-digit',second:'2-digit'})}`;
+        })
+        .catch(()=>{});
+    }, 30000); // cada 30 segundos
+}
+
+function stopAutoRefresh(){
+    _autoRefreshTicker = null;
+    if(_autoRefreshInterval){ clearInterval(_autoRefreshInterval); _autoRefreshInterval=null; }
+}
 </script>
 </body>
 </html>
