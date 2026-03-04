@@ -2055,6 +2055,63 @@ def dashboard():
                               'ftmo_signal': {'color': 'red', 'titulo': 'Error', 'desc': '', 'favor': [], 'contra': []}}
     return jsonify([raw[t] for t in MARKET_LEADERS if t in raw])
 
+
+@app.route('/uw_congress_debug/<ticker>')
+def uw_congress_debug(ticker):
+    """Debug congresistas — muestra raw data y resultado del parser."""
+    ticker = ticker.upper()
+    
+    # Raw data from UW
+    raw = _uw_get("/api/congress/recent-trades", params={'ticker': ticker, 'limit': 20})
+    
+    result = {'raw_count': 0, 'raw_items': [], 'parsed': [], 'errors': []}
+    
+    if raw and raw.get('data'):
+        items = raw['data']
+        result['raw_count'] = len(items)
+        
+        for i, t in enumerate(items[:10]):
+            item_info = {
+                'index': i,
+                'all_keys': list(t.keys()),
+                'txn_type': t.get('txn_type'),
+                'type': t.get('type'),
+                'name': t.get('name'),
+                'reporter': t.get('reporter'),
+                'transaction_date': t.get('transaction_date'),
+                'filed_at': t.get('filed_at'),
+                'amounts': t.get('amounts'),
+                'ticker': t.get('ticker'),
+            }
+            result['raw_items'].append(item_info)
+            
+            # Try parsing date
+            tx_date = t.get('transaction_date') or t.get('filed_at') or ''
+            days_ago = 999
+            parse_error = None
+            try:
+                if tx_date:
+                    clean = tx_date[:10].strip()
+                    parts = clean.split('-')
+                    if len(parts) == 3:
+                        dt_f = datetime(int(parts[0]), int(parts[1]), int(parts[2]))
+                        days_ago = (datetime.utcnow() - dt_f).days
+            except Exception as e:
+                parse_error = str(e)
+            
+            result['parsed'].append({
+                'name': t.get('name'),
+                'tx_date_raw': tx_date,
+                'days_ago': days_ago,
+                'parse_error': parse_error,
+                'txn_type': t.get('txn_type'),
+                'within_60d': days_ago <= 60
+            })
+    else:
+        result['api_response'] = str(raw)[:500] if raw else 'None/Empty'
+    
+    return jsonify(result)
+
 @app.route('/uw_status')
 def uw_status():
     """Test endpoint — verifica que la API key de UW funciona."""

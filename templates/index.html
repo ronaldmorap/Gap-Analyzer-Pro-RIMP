@@ -864,6 +864,27 @@ function accStr(w,c){
     return `<span style="color:${col};font-weight:600">${p}%</span> (${w}/${c})`;
 }
 
+function editGap(id){
+    const trades = loadTradesLS();
+    const t = trades.find(x => x.id === id);
+    if (!t) return;
+    const current = t.gap_real != null ? t.gap_real : '';
+    const val = prompt(
+        `Gap real para ${t.ticker} (${t.date})\n\n` +
+        `¿Cuánto % abrió respecto al cierre anterior?\n` +
+        `Ej: cerró $100 → abrió $101.5 → escribe: 1.5\n` +
+        `Ej: cerró $100 → abrió $98.5  → escribe: -1.5\n\n` +
+        `Valor actual: ${current !== '' ? current + '%' : 'sin registrar'}`,
+        current
+    );
+    if (val === null) return; // cancelado
+    const num = parseFloat(val);
+    if (isNaN(num)) { alert('Introduce un número válido'); return; }
+    t.gap_real = num;
+    saveTradesLS(trades);
+    renderTrades();
+}
+
 function renderTrades(){
     const trades=loadTradesLS();
     const closed=trades.filter(t=>t.result!=='pending');
@@ -973,6 +994,10 @@ function renderTrades(){
         const rp=t.result==='win'?'<span class="rpill pill-win">✓ Acierto</span>'
                 :t.result==='loss'?'<span class="rpill pill-loss">✗ Fallo</span>'
                 :'<span class="rpill pill-pend">⏳ Pendiente</span>';
+        // Botón editar gap — siempre visible si no tiene gap registrado
+        const gapBtn = t.gap_real == null
+            ? `<button class="btn-icon" onclick="editGap(${t.id})" title="Añadir gap real">📏</button>`
+            : `<button class="btn-icon" onclick="editGap(${t.id})" title="Editar gap real" style="color:var(--blue)">📏</button>`;
         const ab=t.result==='pending'
             ?`<button class="btn-green btn" style="padding:4px 9px;font-size:11px" onclick="updateTradeResult(${t.id},'win')" title="Marcar acierto">✓</button>
               <button class="btn-red btn"   style="padding:4px 9px;font-size:11px" onclick="updateTradeResult(${t.id},'loss')" title="Marcar fallo">✗</button>`:'';
@@ -983,7 +1008,7 @@ function renderTrades(){
                 <div class="tr-info" style="margin-top:3px">${t.dow||''} ${t.date}${t.notes?' · '+t.notes:''}</div>
                 <div style="margin-top:4px">${vixTag}${futTag}${gapTag}</div>
             </div>
-            <div class="tr-actions">${rp}${ab}<button class="btn-icon" onclick="deleteTrade(${t.id})" title="Eliminar">✕</button></div>`;
+            <div class="tr-actions">${rp}${ab}${gapBtn}<button class="btn-icon" onclick="deleteTrade(${t.id})" title="Eliminar">✕</button></div>`;
         list.appendChild(el);
     });
 }
