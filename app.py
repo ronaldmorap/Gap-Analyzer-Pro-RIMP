@@ -1063,18 +1063,22 @@ def get_technical_score(ticker):
 
 
 # ═══════════════════════════════════════════════════════════════════
-#  UNUSUAL WHALES — MÓDULO INSTITUCIONAL COMPLETO
+#  UNUSUAL WHALES — MÓDULO INSTITUCIONAL COMPLETO (campos reales)
 # ═══════════════════════════════════════════════════════════════════
 
 def get_uw_options_flow(ticker):
-    """Flujo de opciones institucional: sweeps, blocks, splits."""
+    """
+    Flujo de opciones: flow-recent con campos reales de UW.
+    Campos reales: total_premium, strike, expiry, alert_rule, underlying_price
+    Sin campo type/side directo — usamos strike vs underlying_price para dirección.
+    """
     cache_key = f'uw_flow_{ticker}'
     cached = _cache_get(cache_key)
     if cached is not None:
         return cached
 
-    empty = {'uw_flow_score': 0, 'uw_flow_signals': [], 'uw_flow_summary': 'Sin datos UW',
-             'call_premium': 0, 'put_premium': 0}
+    empty = {'uw_flow_score': 0, 'uw_flow_signals': [], 'uw_flow_summary': 'Sin datos',
+             'call_premium': 0, 'put_premium': 0, 'total_flow': 0, 'flow_count': 0}
 
     data = _uw_get(f"/api/stock/{ticker}/flow-recent")
     if not data:
@@ -1084,72 +1088,100 @@ def get_uw_options_flow(ticker):
     if not trades:
         _cache_set(cache_key, empty); return empty
 
-    score = 0; signals = []; call_premium = 0; put_premium = 0
+    score = 0; signals = []; total_flow = 0; otm_calls = 0; otm_puts = 0
+    call_prem = 0; put_prem = 0
 
-    for t in trades[:30]:
+    for t in trades[:40]:
         try:
-            opt_type  = (t.get('type') or t.get('option_type') or '').upper()
-            side      = (t.get('side') or t.get('aggressor_ind') or '').upper()
-            premium   = float(t.get('total_premium') or t.get('premium') or 0)
-            is_sweep  = 'SWEEP' in str(t.get('execution_type') or t.get('trade_type') or '').upper()
-            vol       = int(t.get('volume') or 0)
-            oi        = int(t.get('open_interest') or 1)
-            is_opening = vol > oi
+            total_prem   = float(t.get('total_premium') or t.get('premium') or 0)
+            strike       = float(t.get('strike') or 0)
+            underlying   = float(t.get('underlying_price') or 0)
+            alert_rule   = (t.get('alert_rule') or '').upper()
+            expiry       = t.get('expiry') or ''
+            size         = int(t.get('size') or 0)
+            stock_vol    = int(t.get('stock_multi_vol') or 0)
 
-            if opt_type == 'CALL':   call_premium += premium
-            elif opt_type == 'PUT':  put_premium  += premium
-
-            if premium < 50000:
+            if total_prem < 30000 or strike == 0 or underlying == 0:
                 continue
 
-            pts = 0; label_parts = []
-            if opt_type == 'CALL':
-                pts += 1; label_parts.append('📈 CALL')
-            elif opt_type == 'PUT':
-                pts -= 1; label_parts.append('📉 PUT')
+            total_flow += total_prem
 
+            # Determinar CALL vs PUT por strike vs precio subyacente
+            # OTM CALL: strike > underlying (apuesta alcista)
+            # OTM PUT:  strike < underlying (apuesta bajista)
+            is_call = strike >= underlying * 0.98  # call o near-ATM
+            is_put  = strike <= underlying * 1.02  # put o near-ATM
+            # Si ambos aplican (ATM), usar stock_multi_vol: positivo=call, negativo=put
+            if strike > underlying * 1.005:
+                is_call = True; is_put = False
+            elif strike < underlying * 0.995:
+                is_call = False; is_put = True
+
+            is_sweep = 'SWEEP' in alert_rule or 'REPEATED' in alert_rule
+            pts = 0
+
+            if is_call:
+                call_prem += total_prem
+                otm_calls += 1
+                pts = 1.5 if is_sweep else 1.0
+                label = f'📈 CALL ${total_prem/1000:.0f}K · Strike ${strike} · {alert_rule or "FLOW"}'
+            else:
+                put_prem += total_prem
+                otm_puts += 1
+                pts = -1.5 if is_sweep else -1.0
+                label = f'📉 PUT ${total_prem/1000:.0f}K · Strike ${strike} · {alert_rule or "FLOW"}'
+
+            # Sweep = más urgencia institucional
             if is_sweep:
-                pts *= 1.5; label_parts.append('⚡SWEEP')
-            if side in ('A', 'ASK', 'BUY'):
-                pts += 0.5; label_parts.append('ASK')
-            elif side in ('B', 'BID', 'SELL'):
-                pts -= 0.3
-            if is_opening:
-                label_parts.append('NEW'); pts *= 1.2
+                label = '⚡' + label
 
             score += pts
-            premium_k = f"${premium/1000:.0f}K"
             signals.append({
-                'signal': ' '.join(label_parts),
-                'detail': f"{ticker} {' '.join(label_parts)} · {premium_k} premium",
-                'points': round(pts, 1), 'bullish': opt_type == 'CALL'
+                'signal': label,
+                'detail': f'{ticker} · ${total_prem/1000:.0f}K premium · {expiry}',
+                'points': round(pts, 1),
+                'bullish': is_call
             })
+
         except Exception:
             continue
 
-    total_prem = call_premium + put_premium
-    if total_prem > 0:
-        cr = call_premium / total_prem
-        if cr >= 0.7:   summary = f'🐋 Flujo masivo ALCISTA — {cr*100:.0f}% premium en CALLs'
-        elif cr <= 0.3: summary = f'🐋 Flujo masivo BAJISTA — {(1-cr)*100:.0f}% premium en PUTs'
-        else:           summary = f'⚪ Flujo mixto — CALLs {cr*100:.0f}% vs PUTs {(1-cr)*100:.0f}%'
+    total_k = total_flow / 1000
+    if call_prem + put_prem > 0:
+        cr = call_prem / (call_prem + put_prem)
+        if cr >= 0.65:
+            summary = f'🐋 Flujo alcista — {cr*100:.0f}% premium en CALLs (${total_k:.0f}K total)'
+        elif cr <= 0.35:
+            summary = f'🐋 Flujo bajista — {(1-cr)*100:.0f}% premium en PUTs (${total_k:.0f}K total)'
+        else:
+            summary = f'⚪ Flujo mixto — {cr*100:.0f}% CALLs vs {(1-cr)*100:.0f}% PUTs'
     else:
-        summary = 'Sin flujo significativo'
+        summary = f'Sin flujo significativo ({len(trades)} trades analizados)'
 
-    result = {'uw_flow_score': round(score, 1), 'uw_flow_signals': signals[:8],
-              'uw_flow_summary': summary, 'call_premium': round(call_premium/1000, 0),
-              'put_premium': round(put_premium/1000, 0)}
+    result = {
+        'uw_flow_score':   round(score, 1),
+        'uw_flow_signals': signals[:8],
+        'uw_flow_summary': summary,
+        'call_premium':    round(call_prem / 1000, 0),
+        'put_premium':     round(put_prem / 1000, 0),
+        'total_flow':      round(total_flow / 1000, 0),
+        'flow_count':      len(signals)
+    }
     _cache_set(cache_key, result); return result
 
 
 def get_uw_darkpool(ticker):
-    """Dark pool prints institucionales — 15min delay por normativa."""
+    """
+    Dark pool con campos reales: price, size, premium, nbbo_ask, nbbo_bid.
+    Sentimiento: price cerca de nbbo_ask = compra agresiva.
+    """
     cache_key = f'uw_dp_{ticker}'
     cached = _cache_get(cache_key)
     if cached is not None:
         return cached
 
-    empty = {'dp_score': 0, 'dp_signals': [], 'dp_summary': 'Sin datos dark pool', 'dp_volume': 0}
+    empty = {'dp_score': 0, 'dp_signals': [], 'dp_summary': 'Sin datos dark pool',
+             'dp_volume': 0, 'dp_count': 0}
 
     data = _uw_get(f"/api/darkpool/{ticker}")
     if not data:
@@ -1159,108 +1191,153 @@ def get_uw_darkpool(ticker):
     if not prints:
         _cache_set(cache_key, empty); return empty
 
-    score = 0; signals = []; total_buy_vol = 0; total_sell_vol = 0; total_notional = 0
+    score = 0; signals = []; total_notional = 0
+    buy_vol = 0; sell_vol = 0; significant = 0
 
-    for p in prints[:20]:
+    for p in prints[:50]:
         try:
             price    = float(p.get('price') or 0)
             size     = int(p.get('size') or 0)
-            bid      = float(p.get('bid') or price * 0.999)
-            ask      = float(p.get('ask') or price * 1.001)
-            notional = price * size
+            prem     = float(p.get('premium') or 0)
+            nbbo_ask = float(p.get('nbbo_ask') or 0)
+            nbbo_bid = float(p.get('nbbo_bid') or 0)
+            canceled = p.get('canceled', False)
 
-            if notional < 500000:
+            if canceled or price == 0 or size == 0:
                 continue
-            total_notional += notional
-            ask_pct = (price - bid) / (ask - bid) if (ask - bid) > 0 else 0.5
 
-            if ask_pct >= 0.7:
-                pts = 1.0; total_buy_vol += size; sentiment = '🟢 Compra'
-            elif ask_pct <= 0.3:
-                pts = -1.0; total_sell_vol += size; sentiment = '🔴 Venta'
+            notional = price * size
+            if notional < 250000:  # Solo >$250K
+                continue
+
+            total_notional += notional
+            significant += 1
+
+            # Sentimiento: precio vs spread bid/ask
+            spread = nbbo_ask - nbbo_bid
+            if spread > 0 and nbbo_bid > 0:
+                ask_pct = (price - nbbo_bid) / spread
             else:
-                pts = 0; sentiment = '⚪ Neutro'
+                ask_pct = 0.5  # neutro si no hay datos
+
+            if ask_pct >= 0.65:
+                pts = 1.0; buy_vol += size
+                sentiment = '🟢 Compra'
+            elif ask_pct <= 0.35:
+                pts = -1.0; sell_vol += size
+                sentiment = '🔴 Venta'
+            else:
+                pts = 0.2; buy_vol += size // 2  # neutro-alcista por defecto en DP
+                sentiment = '⚪ Neutro'
 
             score += pts
             notional_str = f"${notional/1_000_000:.1f}M" if notional >= 1_000_000 else f"${notional/1000:.0f}K"
             signals.append({
-                'signal': f'🏊 Dark Pool {sentiment}',
-                'detail': f'{ticker} · {notional_str} · {size:,} acciones @ ${price:.2f}',
-                'points': pts, 'bullish': pts > 0
+                'signal':  f'🏊 Dark Pool {sentiment}',
+                'detail':  f'{ticker} · {notional_str} · {size:,} @ ${price:.2f}',
+                'points':  pts,
+                'bullish': pts >= 0
             })
+
         except Exception:
             continue
 
-    total_vol = total_buy_vol + total_sell_vol
-    if total_vol > 0:
-        br = total_buy_vol / total_vol
+    total_vol = buy_vol + sell_vol
+    if total_vol > 0 and significant > 0:
+        br = buy_vol / total_vol
         ns = f"${total_notional/1_000_000:.1f}M"
-        if br >= 0.65:   summary = f'🟢 Dark pool alcista — {br*100:.0f}% comprador ({ns})'
-        elif br <= 0.35: summary = f'🔴 Dark pool bajista — {(1-br)*100:.0f}% vendedor ({ns})'
-        else:            summary = f'⚪ Dark pool neutro ({ns} total)'
+        if br >= 0.6:    summary = f'🟢 Dark pool alcista — {br*100:.0f}% comprador ({ns}, {significant} prints)'
+        elif br <= 0.4:  summary = f'🔴 Dark pool bajista — {(1-br)*100:.0f}% vendedor ({ns}, {significant} prints)'
+        else:            summary = f'⚪ Dark pool neutro ({ns}, {significant} prints significativos)'
     else:
-        summary = 'Sin actividad significativa en dark pool'
+        summary = f'Sin actividad significativa ({len(prints)} prints totales)'
 
-    result = {'dp_score': round(score, 1), 'dp_signals': signals[:6],
-              'dp_summary': summary, 'dp_volume': round(total_notional/1_000_000, 1)}
+    result = {
+        'dp_score':   round(score, 1),
+        'dp_signals': signals[:6],
+        'dp_summary': summary,
+        'dp_volume':  round(total_notional / 1_000_000, 2),
+        'dp_count':   significant
+    }
     _cache_set(cache_key, result); return result
 
 
 def get_uw_market_tide():
-    """Market Tide: sentimiento global call vs put del mercado entero."""
+    """
+    Market Tide con campos reales: net_call_premium, net_put_premium, net_volume.
+    Serie temporal — usar el último dato del día actual.
+    """
     cache_key = 'uw_tide'
     cached = _cache_get(cache_key)
     if cached is not None:
         return cached
 
     empty = {'tide_score': 0, 'tide_signal': '⚪ Sin datos Market Tide',
-             'tide_bullish': None, 'call_pct': 50}
+             'tide_bullish': None, 'call_pct': 50, 'net_premium': 0}
 
     data = _uw_get("/api/market/market-tide")
     if not data:
         _cache_set(cache_key, empty); return empty
 
     try:
-        d = data.get('data') or data
-        if isinstance(d, list) and len(d) > 0:
-            d = d[-1]
-        call_prem = float(d.get('call_premium') or d.get('calls_premium') or 0)
-        put_prem  = float(d.get('put_premium')  or d.get('puts_premium')  or 0)
-
-        if call_prem == 0 and put_prem == 0:
+        items = data.get('data', [])
+        if not items:
             _cache_set(cache_key, empty); return empty
 
-        total = call_prem + put_prem
-        call_pct = (call_prem / total * 100) if total > 0 else 50
+        # Acumular todos los datos del día
+        total_call = 0; total_put = 0; total_vol = 0
+        today = datetime.utcnow().strftime('%Y-%m-%d')
 
-        if call_pct >= 60:
+        for item in items:
+            item_date = (item.get('date') or item.get('timestamp') or '')[:10]
+            if item_date != today:
+                continue
+            total_call += abs(float(item.get('net_call_premium') or 0))
+            total_put  += abs(float(item.get('net_put_premium')  or 0))
+            total_vol  += int(item.get('net_volume') or 0)
+
+        # Si no hay datos de hoy, usar últimos items disponibles
+        if total_call == 0 and total_put == 0:
+            for item in items[-20:]:
+                total_call += abs(float(item.get('net_call_premium') or 0))
+                total_put  += abs(float(item.get('net_put_premium')  or 0))
+
+        if total_call == 0 and total_put == 0:
+            _cache_set(cache_key, empty); return empty
+
+        total = total_call + total_put
+        call_pct = (total_call / total * 100) if total > 0 else 50
+        net_prem = round((total_call - total_put) / 1_000_000, 1)
+
+        if call_pct >= 58:
             score = 1; bullish = True
-            signal = f'🌊 Market Tide ALCISTA — {call_pct:.0f}% premium en CALLs'
-        elif call_pct <= 40:
+            signal = f'🌊 Market Tide ALCISTA — {call_pct:.0f}% premium en CALLs · net ${net_prem}M'
+        elif call_pct <= 42:
             score = -1; bullish = False
-            signal = f'🌊 Market Tide BAJISTA — {100-call_pct:.0f}% premium en PUTs'
+            signal = f'🌊 Market Tide BAJISTA — {100-call_pct:.0f}% premium en PUTs · net ${net_prem}M'
         else:
             score = 0; bullish = None
             signal = f'🌊 Market Tide NEUTRO — {call_pct:.0f}% CALLs vs {100-call_pct:.0f}% PUTs'
 
-        result = {'tide_score': score, 'tide_signal': signal,
-                  'tide_bullish': bullish, 'call_pct': round(call_pct, 1)}
+        result = {'tide_score': score, 'tide_signal': signal, 'tide_bullish': bullish,
+                  'call_pct': round(call_pct, 1), 'net_premium': net_prem}
         _cache_set(cache_key, result); return result
+
     except Exception:
         _cache_set(cache_key, empty); return empty
 
 
 def get_uw_flow_alerts(ticker):
-    """Flow alerts pre-filtradas por UW — los trades MÁS inusuales."""
+    """Flow alerts con campos reales: total_premium, alert_rule, strike, expiry."""
     cache_key = f'uw_alerts_{ticker}'
     cached = _cache_get(cache_key)
     if cached is not None:
         return cached
 
-    empty = {'alert_score': 0, 'alert_signals': []}
+    empty = {'alert_score': 0, 'alert_signals': [], 'alert_count': 0}
 
     data = _uw_get("/api/option-trades/flow-alerts", params={
-        'ticker_symbol': ticker, 'min_premium': 50000, 'limit': 20
+        'ticker_symbol': ticker, 'limit': 20
     })
     if not data:
         _cache_set(cache_key, empty); return empty
@@ -1268,125 +1345,55 @@ def get_uw_flow_alerts(ticker):
     alerts = data.get('data', [])
     score = 0; signals = []
 
-    for a in alerts[:10]:
+    for a in alerts[:15]:
         try:
-            opt_type  = (a.get('type') or '').upper()
-            side      = (a.get('side') or a.get('aggressor_ind') or '').upper()
-            premium   = float(a.get('total_premium') or a.get('premium') or 0)
-            alert_tag = (a.get('alert_tag') or a.get('tag') or '').upper()
+            total_prem  = float(a.get('total_premium') or 0)
+            strike      = float(a.get('strike') or 0)
+            underlying  = float(a.get('underlying_price') or 0)
+            alert_rule  = (a.get('alert_rule') or '').upper()
+            expiry      = a.get('expiry') or ''
 
-            pts = 0
-            if opt_type == 'CALL' and side in ('A', 'ASK', 'BUY'):   pts =  2.0
-            elif opt_type == 'CALL':                                   pts =  1.0
-            elif opt_type == 'PUT' and side in ('A', 'ASK', 'BUY'):  pts = -2.0
-            elif opt_type == 'PUT':                                    pts = -1.0
-            if 'SWEEP' in alert_tag: pts *= 1.3
-
-            score += pts
-            prem_k = f"${premium/1000:.0f}K"
-            emoji  = '🚀' if pts >= 2 else '🟢' if pts > 0 else '🔻' if pts <= -2 else '🔴'
-            signals.append({
-                'signal': f'{emoji} UW ALERT {opt_type}',
-                'detail': f'{ticker} ALERT {opt_type} · {prem_k} · {alert_tag}',
-                'points': round(pts, 1), 'bullish': pts > 0
-            })
-        except Exception:
-            continue
-
-    result = {'alert_score': round(score, 1), 'alert_signals': signals[:6]}
-    _cache_set(cache_key, result); return result
-
-
-def get_uw_news(ticker):
-    """Noticias UW: latencia 2-5min vs 30-60min del RSS."""
-    cache_key = f'uw_news_{ticker}'
-    cached = _cache_get(cache_key)
-    if cached is not None:
-        return cached
-
-    empty = {'uw_news_score': 0, 'uw_news_signals': []}
-
-    data = _uw_get(f"/api/news/{ticker}")
-    if not data:
-        _cache_set(cache_key, empty); return empty
-
-    news_list = data.get('data', [])
-    score = 0; signals = []; seen = set()
-
-    def _classify_uw(title):
-        tl = title.lower()
-        if any(w in tl for w in ['upgrade','outperform','overweight','strong buy','raises price target','initiates']):
-            return 1.5
-        if any(w in tl for w in ['downgrade','underperform','underweight','cuts price target','lowers guidance']):
-            return -1.5
-        if any(w in tl for w in ['hindenburg','short seller','fraud','citron','muddy waters']):
-            return -3.0
-        if any(w in tl for w in ['beats','beat estimates','record revenue','strong results','revenue beat']):
-            return 2.0
-        if any(w in tl for w in ['misses','miss estimates','disappoints','weak results','cuts guidance']):
-            return -2.0
-        if any(w in tl for w in ['partnership','contract','acquisition','buyback','fda approval','deal']):
-            return 1.0
-        if any(w in tl for w in ['lawsuit','investigation','fine','recall','layoffs','penalty','probe']):
-            return -1.0
-        return 0
-
-    for n in news_list[:20]:
-        try:
-            title     = (n.get('title') or n.get('headline') or '').strip()
-            published = n.get('published_at') or n.get('created_at') or ''
-            sentiment_uw = (n.get('sentiment') or '').lower()
-            if not title or title in seen:
-                continue
-            seen.add(title)
-
-            h = 999
-            try:
-                from datetime import timezone
-                dt_pub  = datetime.fromisoformat(published.replace('Z', '+00:00'))
-                now_utc = datetime.now(timezone.utc)
-                h = (now_utc - dt_pub).total_seconds() / 3600
-            except Exception:
-                pass
-
-            if h > 48:
+            if total_prem < 30000:
                 continue
 
-            w = 1.0 if h <= 2 else 0.8 if h <= 6 else 0.5 if h <= 12 else 0.3 if h <= 24 else 0.1
-
-            # Usar sentimiento de UW si disponible, sino clasificar
-            if sentiment_uw in ('bullish', 'positive'):
-                base_pts = 1.5
-            elif sentiment_uw in ('bearish', 'negative'):
-                base_pts = -1.5
+            # Dirección por strike vs underlying
+            if strike > 0 and underlying > 0:
+                is_call = strike >= underlying * 0.98
+                if strike > underlying * 1.005:   is_call = True
+                elif strike < underlying * 0.995: is_call = False
             else:
-                base_pts = _classify_uw(title)
+                is_call = True  # default alcista si no hay datos
 
-            pts = round(base_pts * w, 1)
+            pts = 2.0 if is_call else -2.0
+            if 'SWEEP' in alert_rule: pts *= 1.3
+            if 'REPEATED' in alert_rule: pts *= 1.2
+
             score += pts
-
-            age_str = f'hace {int(h)}h' if h < 24 else f'hace {int(h/24)}d'
-            emoji = '🟢' if pts > 0 else '🔴' if pts < 0 else '⚪'
+            emoji = '🚀' if pts >= 2 else '🟢' if pts > 0 else '🔻' if pts <= -2 else '🔴'
+            prem_k = f"${total_prem/1000:.0f}K"
             signals.append({
-                'signal':  f'{emoji} UW News',
-                'detail':  f'{title[:75]} · {age_str} [UW]',
-                'points':  pts, 'bullish': pts > 0
+                'signal': f'{emoji} ALERT {"CALL" if is_call else "PUT"} · {alert_rule}',
+                'detail': f'{ticker} · {prem_k} · Strike ${strike} · {expiry}',
+                'points': round(pts, 1), 'bullish': is_call
             })
+
         except Exception:
             continue
 
-    result = {'uw_news_score': round(score, 1), 'uw_news_signals': signals[:8]}
+    result = {'alert_score': round(score, 1), 'alert_signals': signals[:6],
+              'alert_count': len(signals)}
     _cache_set(cache_key, result); return result
 
 
 def get_uw_congress(ticker):
-    """Trades de congresistas — timing casi perfecto históricamente."""
+    """Congresistas con campos reales: txn_type, name, amounts, transaction_date."""
     cache_key = f'uw_congress_{ticker}'
     cached = _cache_get(cache_key)
     if cached is not None:
         return cached
 
-    empty = {'congress_score': 0, 'congress_signals': [], 'congress_summary': ''}
+    empty = {'congress_score': 0, 'congress_signals': [], 'congress_summary': '',
+             'congress_buys': 0, 'congress_sells': 0}
 
     data = _uw_get("/api/congress/recent-trades", params={'ticker': ticker, 'limit': 20})
     if not data:
@@ -1397,76 +1404,78 @@ def get_uw_congress(ticker):
 
     for t in trades_list[:10]:
         try:
-            trade_type = (t.get('type') or t.get('transaction_type') or '').lower()
-            politician = t.get('politician') or t.get('representative') or 'Político'
-            amount     = t.get('amount') or t.get('amount_range') or ''
-            filed_at   = t.get('filed_at') or t.get('transaction_date') or ''
+            txn_type   = (t.get('txn_type') or t.get('type') or '').lower()
+            politician = t.get('name') or t.get('reporter') or 'Político'
+            amounts    = t.get('amounts') or t.get('amount') or ''
+            tx_date    = t.get('transaction_date') or t.get('filed_at') or ''
 
+            # Calcular días
             days_ago = 999
             try:
-                if filed_at:
-                    dt_f = datetime.fromisoformat(filed_at[:10])
+                if tx_date:
+                    dt_f = datetime.strptime(tx_date[:10].strip(), '%Y-%m-%d')
                     days_ago = (datetime.utcnow() - dt_f).days
             except Exception:
                 pass
 
-            if days_ago > 30:
+            if days_ago > 60:
                 continue
 
-            rw = 1.0 if days_ago <= 7 else 0.6 if days_ago <= 14 else 0.3
+            rw = 1.0 if days_ago <= 7 else 0.7 if days_ago <= 30 else 0.4
 
-            if 'buy' in trade_type or 'purchase' in trade_type:
+            if 'buy' in txn_type or 'purchase' in txn_type:
                 pts = 1.5 * rw; buys += 1; emoji = '🏛️🟢'
-            elif 'sell' in trade_type or 'sale' in trade_type:
+                action = 'COMPRA'
+            elif 'sell' in txn_type or 'sale' in txn_type or 'exchange' in txn_type:
                 pts = -1.0 * rw; sells += 1; emoji = '🏛️🔴'
+                action = 'VENTA'
             else:
                 continue
 
             score += pts
             signals.append({
-                'signal': f'{emoji} Congresista',
-                'detail': f'{politician} {trade_type.upper()} {ticker} · {amount} · hace {days_ago}d',
+                'signal': f'{emoji} Congresista {action}',
+                'detail': f'{politician} · {amounts} · hace {days_ago}d',
                 'points': round(pts, 1), 'bullish': pts > 0
             })
+
         except Exception:
             continue
 
-    summary = f'🏛️ {buys} compras / {sells} ventas congresistas (30d)' if (buys + sells) > 0 else ''
+    summary = ''
+    if buys + sells > 0:
+        summary = f'🏛️ {buys} compras / {sells} ventas congresistas (60d)'
 
     result = {'congress_score': round(score, 1), 'congress_signals': signals[:5],
-              'congress_summary': summary}
+              'congress_summary': summary, 'congress_buys': buys, 'congress_sells': sells}
     _cache_set(cache_key, result); return result
 
 
 def get_unusual_whales_data(ticker):
-    """Combina todos los módulos UW en paralelo."""
+    """Combina todos los módulos UW en paralelo con campos reales corregidos."""
     cache_key = f'uw_combined_{ticker}'
     cached = _cache_get(cache_key)
     if cached is not None:
         return cached
 
-    with ThreadPoolExecutor(max_workers=6) as ex:
+    with ThreadPoolExecutor(max_workers=5) as ex:
         f_flow     = ex.submit(get_uw_options_flow, ticker)
         f_dp       = ex.submit(get_uw_darkpool,     ticker)
         f_tide     = ex.submit(get_uw_market_tide)
         f_alerts   = ex.submit(get_uw_flow_alerts,  ticker)
-        f_news     = ex.submit(get_uw_news,         ticker)
         f_congress = ex.submit(get_uw_congress,     ticker)
 
     flow_data     = f_flow.result()
     dp_data       = f_dp.result()
     tide_data     = f_tide.result()
     alert_data    = f_alerts.result()
-    news_data     = f_news.result()
     congress_data = f_congress.result()
 
-    # Score total ponderado — flow alerts tienen peso máximo (son los más fiables)
     total_score = (
         alert_data.get('alert_score', 0)       * 2.0 +
         flow_data.get('uw_flow_score', 0)      * 1.5 +
         dp_data.get('dp_score', 0)             * 1.3 +
         tide_data.get('tide_score', 0)         * 0.8 +
-        news_data.get('uw_news_score', 0)      * 1.0 +
         congress_data.get('congress_score', 0) * 0.5
     )
 
@@ -1474,26 +1483,34 @@ def get_unusual_whales_data(ticker):
         alert_data.get('alert_signals', []) +
         flow_data.get('uw_flow_signals', []) +
         dp_data.get('dp_signals', []) +
-        news_data.get('uw_news_signals', []) +
         congress_data.get('congress_signals', [])
     )
     all_signals.sort(key=lambda x: -abs(x.get('points', 0)))
 
     result = {
-        'uw_total_score':   round(total_score, 1),
-        'uw_all_signals':   all_signals[:12],
-        'flow_summary':     flow_data.get('uw_flow_summary', ''),
-        'dp_summary':       dp_data.get('dp_summary', ''),
-        'tide_signal':      tide_data.get('tide_signal', ''),
-        'congress_summary': congress_data.get('congress_summary', ''),
-        'call_premium_k':   flow_data.get('call_premium', 0),
-        'put_premium_k':    flow_data.get('put_premium', 0),
-        'dp_volume_m':      dp_data.get('dp_volume', 0),
-        'tide_bullish':     tide_data.get('tide_bullish'),
-        'tide_call_pct':    tide_data.get('call_pct', 50),
+        'uw_total_score':    round(total_score, 1),
+        'uw_all_signals':    all_signals[:12],
+        'flow_summary':      flow_data.get('uw_flow_summary', ''),
+        'dp_summary':        dp_data.get('dp_summary', ''),
+        'tide_signal':       tide_data.get('tide_signal', ''),
+        'congress_summary':  congress_data.get('congress_summary', ''),
+        'call_premium_k':    flow_data.get('call_premium', 0),
+        'put_premium_k':     flow_data.get('put_premium', 0),
+        'total_flow_k':      flow_data.get('total_flow', 0),
+        'flow_count':        flow_data.get('flow_count', 0),
+        'dp_volume_m':       dp_data.get('dp_volume', 0),
+        'dp_count':          dp_data.get('dp_count', 0),
+        'tide_bullish':      tide_data.get('tide_bullish'),
+        'tide_call_pct':     tide_data.get('call_pct', 50),
+        'tide_net_premium':  tide_data.get('net_premium', 0),
+        'alert_count':       alert_data.get('alert_count', 0),
+        'congress_buys':     congress_data.get('congress_buys', 0),
+        'congress_sells':    congress_data.get('congress_sells', 0),
     }
     _cache_set(cache_key, result)
     return result
+
+
 
 # ═══════════════════════════════════════════════════════════════════
 #  SEMÁFORO FTMO — el corazón de la app

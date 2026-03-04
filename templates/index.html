@@ -121,36 +121,6 @@
         .sig-item:last-child{border-bottom:none}
         .sig-pts-pos{color:var(--green);font-weight:700} .sig-pts-neg{color:var(--red);font-weight:700}
         .no-sig{font-size:12px;color:var(--muted);font-style:italic}
-        /* ── UNUSUAL WHALES — BLOQUE INSTITUCIONAL ── */
-        .uw-box{background:linear-gradient(135deg,#0f1623 0%,#1a2540 100%);border:1px solid #2d3f5e;
-            border-radius:var(--r);padding:22px 26px;margin-bottom:18px;color:#e2e8f0}
-        .uw-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px}
-        .uw-title{font-size:13px;font-weight:700;color:#7dd3fc;text-transform:uppercase;letter-spacing:1px}
-        .uw-badge{padding:3px 12px;border-radius:20px;font-size:10px;font-weight:700}
-        .uw-bull{background:rgba(16,185,129,.15);color:#34d399;border:1px solid rgba(16,185,129,.3)}
-        .uw-bear{background:rgba(239,68,68,.15);color:#f87171;border:1px solid rgba(239,68,68,.3)}
-        .uw-neu{background:rgba(107,114,128,.15);color:#9ca3af;border:1px solid rgba(107,114,128,.3)}
-        .uw-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px}
-        @media(max-width:700px){.uw-grid{grid-template-columns:1fr 1fr}}
-        @media(max-width:480px){.uw-grid{grid-template-columns:1fr}}
-        .uw-stat{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);
-            border-radius:8px;padding:12px;text-align:center}
-        .uw-stat-val{font-size:18px;font-weight:800;letter-spacing:-0.5px}
-        .uw-stat-lbl{font-size:9px;color:#64748b;text-transform:uppercase;letter-spacing:.8px;margin-top:3px;font-weight:600}
-        .uw-signals{display:flex;flex-direction:column;gap:5px}
-        .uw-sig-item{display:flex;justify-content:space-between;align-items:center;
-            background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);
-            border-radius:6px;padding:7px 12px;font-size:11px}
-        .uw-sig-detail{color:#94a3b8;font-size:10px;margin-top:1px}
-        .uw-pts-pos{color:#34d399;font-weight:700;font-size:12px}
-        .uw-pts-neg{color:#f87171;font-weight:700;font-size:12px}
-        .uw-summaries{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
-        @media(max-width:600px){.uw-summaries{grid-template-columns:1fr}}
-        .uw-sum{background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);
-            border-radius:6px;padding:9px 12px;font-size:11px;color:#cbd5e1}
-        .uw-sum-lbl{font-size:9px;color:#475569;text-transform:uppercase;letter-spacing:.8px;font-weight:600;margin-bottom:4px}
-        .uw-no-data{text-align:center;color:#475569;font-size:12px;font-style:italic;padding:16px}
-
 
         /* REGISTER BUTTONS */
         .reg-row{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px}
@@ -341,21 +311,32 @@
                 </div>
             </div>
 
-            <!-- UNUSUAL WHALES — Flujo Institucional Real -->
-            <div class="uw-box" id="uwBox" style="display:none">
-                <div class="uw-header">
-                    <div class="uw-title">🐋 Unusual Whales — Flujo Institucional Real</div>
-                    <span class="uw-badge uw-neu" id="uwBadge">Cargando...</span>
+            <!-- UNUSUAL WHALES — Tarjetas institucionales -->
+            <div id="uwSection" style="display:none">
+
+                <!-- Header sección UW -->
+                <div class="sec-hdr" style="margin-top:8px;margin-bottom:14px">
+                    <h2 style="font-size:14px">🐋 Unusual Whales — Flujo Institucional</h2>
+                    <div class="sec-line"></div>
+                    <span class="sec-tag" id="uwScoreBadge">Cargando…</span>
                 </div>
-                <!-- Stats row: call premium, put premium, dark pool vol, market tide -->
-                <div class="uw-grid" id="uwStatsGrid"></div>
-                <!-- Summaries -->
-                <div class="uw-summaries" id="uwSummaries"></div>
-                <!-- Signals list -->
-                <div style="margin-top:12px">
-                    <div style="font-size:9px;color:#475569;text-transform:uppercase;letter-spacing:.8px;font-weight:600;margin-bottom:7px">Señales detectadas</div>
-                    <div class="uw-signals" id="uwSignals"></div>
+
+                <!-- Fila 1: 4 tarjetas métricas -->
+                <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:10px" id="uwMetrics">
+                    <!-- generado por JS -->
                 </div>
+
+                <!-- Fila 2: Resúmenes (opciones flow + dark pool) -->
+                <div class="signals-grid" style="margin-bottom:10px" id="uwSummaryGrid">
+                    <!-- generado por JS -->
+                </div>
+
+                <!-- Fila 3: Señales detectadas -->
+                <div class="sig-box" id="uwSignalsBox">
+                    <h3>⚡ Señales detectadas (flow alerts + opciones + dark pool + congresistas)</h3>
+                    <div id="uwSignalsList"></div>
+                </div>
+
             </div>
 
         </div>
@@ -527,92 +508,105 @@ async function analyzeStock(){
 /* ─── UNUSUAL WHALES RENDER ─── */
 function renderUW(uw) {
     if (!uw) return;
-    const box = document.getElementById('uwBox');
-    box.style.display = 'block';
 
-    const score = uw.uw_total_score || 0;
-    const callK = uw.call_premium_k || 0;
-    const putK  = uw.put_premium_k  || 0;
-    const dpVol = uw.dp_volume_m    || 0;
-    const tidePct = uw.tide_call_pct || 50;
+    const section = document.getElementById('uwSection');
+    section.style.display = 'block';
 
-    // Badge principal
-    const badge = document.getElementById('uwBadge');
-    if (score >= 3) {
-        badge.className = 'uw-badge uw-bull';
-        badge.textContent = '🐋 ALCISTA INSTITUCIONAL';
-    } else if (score <= -3) {
-        badge.className = 'uw-badge uw-bear';
-        badge.textContent = '🐋 BAJISTA INSTITUCIONAL';
-    } else if (score > 0) {
-        badge.className = 'uw-badge uw-bull';
-        badge.textContent = '↗ Ligera presión alcista';
-    } else if (score < 0) {
-        badge.className = 'uw-badge uw-bear';
-        badge.textContent = '↘ Ligera presión bajista';
-    } else {
-        badge.className = 'uw-badge uw-neu';
-        badge.textContent = '⚪ Flujo neutro';
-    }
+    const score     = uw.uw_total_score || 0;
+    const callK     = uw.call_premium_k  || 0;
+    const putK      = uw.put_premium_k   || 0;
+    const totalK    = uw.total_flow_k    || 0;
+    const dpVol     = uw.dp_volume_m     || 0;
+    const dpCount   = uw.dp_count        || 0;
+    const tidePct   = uw.tide_call_pct   || 50;
+    const tideNet   = uw.tide_net_premium|| 0;
+    const alertCnt  = uw.alert_count     || 0;
+    const flowCnt   = uw.flow_count      || 0;
+    const cgBuys    = uw.congress_buys   || 0;
+    const cgSells   = uw.congress_sells  || 0;
 
-    // Stats grid
-    const callColor  = callK > putK ? '#34d399' : '#94a3b8';
-    const putColor   = putK  > callK ? '#f87171' : '#94a3b8';
-    const tideColor  = tidePct >= 60 ? '#34d399' : tidePct <= 40 ? '#f87171' : '#94a3b8';
-    const scoreColor = score >= 3 ? '#34d399' : score <= -3 ? '#f87171' : '#94a3b8';
+    // Score badge en header
+    const badge = document.getElementById('uwScoreBadge');
+    if (score >= 4)       { badge.textContent = '🐋 ALCISTA INSTITUCIONAL'; badge.style.cssText='background:var(--green-bg);color:var(--green);border:1px solid var(--green-b);padding:3px 10px;border-radius:20px;font-size:10px;font-weight:700'; }
+    else if (score <= -4) { badge.textContent = '🐋 BAJISTA INSTITUCIONAL'; badge.style.cssText='background:var(--red-bg);color:var(--red);border:1px solid var(--red-b);padding:3px 10px;border-radius:20px;font-size:10px;font-weight:700'; }
+    else if (score > 0)   { badge.textContent = '↗ Presión alcista'; badge.style.cssText='background:var(--green-bg);color:var(--green);border:1px solid var(--green-b);padding:3px 10px;border-radius:20px;font-size:10px;font-weight:700'; }
+    else if (score < 0)   { badge.textContent = '↘ Presión bajista'; badge.style.cssText='background:var(--red-bg);color:var(--red);border:1px solid var(--red-b);padding:3px 10px;border-radius:20px;font-size:10px;font-weight:700'; }
+    else                  { badge.textContent = '⚪ Flujo neutro'; badge.style.cssText='background:var(--neutral-bg);color:var(--neutral);border:1px solid var(--border);padding:3px 10px;border-radius:20px;font-size:10px;font-weight:700'; }
 
-    document.getElementById('uwStatsGrid').innerHTML = `
-        <div class="uw-stat">
-            <div class="uw-stat-val" style="color:${callColor}">$${callK > 999 ? (callK/1000).toFixed(1)+'M' : callK+'K'}</div>
-            <div class="uw-stat-lbl">📈 Premium CALLs</div>
+    // ── Fila 1: 4 tarjetas métricas ─────────────────────────────
+    const callColor  = callK > putK  ? 'var(--green)' : 'var(--muted)';
+    const putColor   = putK  > callK ? 'var(--red)'   : 'var(--muted)';
+    const tideColor  = tidePct >= 58 ? 'var(--green)'  : tidePct <= 42 ? 'var(--red)' : 'var(--muted)';
+    const scoreColor = score > 2 ? 'var(--green)' : score < -2 ? 'var(--red)' : 'var(--text2)';
+    const dpColor    = dpVol > 0 ? 'var(--blue)' : 'var(--muted)';
+
+    const callBg   = callK > putK  ? 'border-color:var(--green-b);background:var(--green-bg)' : '';
+    const putBg    = putK  > callK ? 'border-color:var(--red-b);background:var(--red-bg)'     : '';
+    const tideBg   = tidePct >= 58 ? 'border-color:var(--green-b);background:var(--green-bg)'
+                   : tidePct <= 42 ? 'border-color:var(--red-b);background:var(--red-bg)' : '';
+    const scoreBg  = score > 2 ? 'border-color:var(--green-b);background:var(--green-bg)'
+                   : score < -2 ? 'border-color:var(--red-b);background:var(--red-bg)' : '';
+
+    function fmtK(k) { return k >= 1000 ? '$'+(k/1000).toFixed(1)+'M' : k > 0 ? '$'+k+'K' : '—'; }
+
+    document.getElementById('uwMetrics').innerHTML = `
+        <div class="data-card" style="${callBg}">
+            <div class="dc-lbl">📈 Premium CALLs</div>
+            <div class="dc-val" style="color:${callColor};font-size:16px;font-weight:800">${fmtK(callK)}</div>
+            <div style="font-size:10px;color:var(--muted);margin-top:3px">${flowCnt} trades · ${callK>0?Math.round(callK/(callK+putK)*100)+'% del flujo':'—'}</div>
         </div>
-        <div class="uw-stat">
-            <div class="uw-stat-val" style="color:${putColor}">$${putK > 999 ? (putK/1000).toFixed(1)+'M' : putK+'K'}</div>
-            <div class="uw-stat-lbl">📉 Premium PUTs</div>
+        <div class="data-card" style="${putBg}">
+            <div class="dc-lbl">📉 Premium PUTs</div>
+            <div class="dc-val" style="color:${putColor};font-size:16px;font-weight:800">${fmtK(putK)}</div>
+            <div style="font-size:10px;color:var(--muted);margin-top:3px">${putK>0?Math.round(putK/(callK+putK)*100)+'% del flujo':'—'}</div>
         </div>
-        <div class="uw-stat">
-            <div class="uw-stat-val" style="color:#7dd3fc">${dpVol > 0 ? '$'+dpVol.toFixed(1)+'M' : '—'}</div>
-            <div class="uw-stat-lbl">🏊 Dark Pool Vol</div>
+        <div class="data-card" style="${tideBg}">
+            <div class="dc-lbl">🌊 Market Tide</div>
+            <div class="dc-val" style="color:${tideColor};font-size:16px;font-weight:800">${tidePct.toFixed(0)}% / ${(100-tidePct).toFixed(0)}%</div>
+            <div style="font-size:10px;color:var(--muted);margin-top:3px">CALLs / PUTs · net $${Math.abs(tideNet)}M</div>
         </div>
-        <div class="uw-stat">
-            <div class="uw-stat-val" style="color:${tideColor}">${tidePct.toFixed(0)}% / ${(100-tidePct).toFixed(0)}%</div>
-            <div class="uw-stat-lbl">🌊 Market Tide C/P</div>
-        </div>
-        <div class="uw-stat">
-            <div class="uw-stat-val" style="color:${scoreColor}">${score > 0 ? '+' : ''}${score}</div>
-            <div class="uw-stat-lbl">⚡ Score Total UW</div>
+        <div class="data-card" style="${scoreBg}">
+            <div class="dc-lbl">⚡ Score UW Total</div>
+            <div class="dc-val" style="color:${scoreColor};font-size:22px;font-weight:800">${score > 0 ? '+' : ''}${score}</div>
+            <div style="font-size:10px;color:var(--muted);margin-top:3px">${alertCnt} alerts · DP $${dpVol.toFixed(1)}M (${dpCount} prints)</div>
         </div>
     `;
 
-    // Summaries
-    const sums = [];
-    if (uw.flow_summary)     sums.push({lbl:'Opciones Flow',  txt: uw.flow_summary});
-    if (uw.dp_summary)       sums.push({lbl:'Dark Pool',      txt: uw.dp_summary});
-    if (uw.tide_signal)      sums.push({lbl:'Market Tide',    txt: uw.tide_signal});
-    if (uw.congress_summary) sums.push({lbl:'Congresistas',   txt: uw.congress_summary});
+    // ── Fila 2: Resúmenes (flow + dark pool) ─────────────────────
+    const summaries = [];
+    if (uw.flow_summary)    summaries.push({icon:'🐋', title:'Opciones Flow',  text: uw.flow_summary,    extra: totalK > 0 ? `Total: ${fmtK(totalK)}` : ''});
+    if (uw.dp_summary)      summaries.push({icon:'🏊', title:'Dark Pool',      text: uw.dp_summary,      extra: dpVol > 0 ? `Vol: $${dpVol.toFixed(1)}M` : ''});
+    if (uw.tide_signal)     summaries.push({icon:'🌊', title:'Market Tide',    text: uw.tide_signal,     extra: ''});
+    if (uw.congress_summary)summaries.push({icon:'🏛️', title:'Congresistas',  text: uw.congress_summary,extra: `${cgBuys} compras · ${cgSells} ventas`});
 
-    document.getElementById('uwSummaries').innerHTML = sums.map(s => `
-        <div class="uw-sum">
-            <div class="uw-sum-lbl">${s.lbl}</div>
-            <div>${s.txt}</div>
-        </div>`).join('') || '<div class="uw-no-data">Sin resúmenes disponibles</div>';
-
-    // Signals
-    const signals = uw.uw_all_signals || [];
-    const sigEl = document.getElementById('uwSignals');
-    if (signals.length) {
-        sigEl.innerHTML = signals.map(s => `
-            <div class="uw-sig-item">
-                <div>
-                    <div style="font-weight:600;color:#e2e8f0">${s.signal || ''}</div>
-                    <div class="uw-sig-detail">${s.detail || ''}</div>
-                </div>
-                <span class="${s.points > 0 ? 'uw-pts-pos' : 'uw-pts-neg'}">${s.points > 0 ? '+' : ''}${s.points}</span>
+    const sgEl = document.getElementById('uwSummaryGrid');
+    if (summaries.length) {
+        sgEl.innerHTML = summaries.map(s => `
+            <div class="sig-box">
+                <h3>${s.icon} ${s.title}${s.extra ? ' <span style="font-weight:400;color:var(--muted)">· '+s.extra+'</span>' : ''}</h3>
+                <div class="sig-summary">${s.text}</div>
             </div>`).join('');
     } else {
-        sigEl.innerHTML = '<div class="uw-no-data">Sin señales UW detectadas en este ticker</div>';
+        sgEl.innerHTML = '';
+    }
+
+    // ── Fila 3: Señales ──────────────────────────────────────────
+    const signals = uw.uw_all_signals || [];
+    const slEl = document.getElementById('uwSignalsList');
+    if (signals.length) {
+        slEl.innerHTML = signals.map(s => `
+            <div class="sig-item">
+                <span>
+                    <span style="font-weight:600">${s.signal || ''}</span>
+                    <br><span style="font-size:11px;color:var(--muted)">${s.detail || ''}</span>
+                </span>
+                <span class="${s.points > 0 ? 'sig-pts-pos' : 'sig-pts-neg'}">${s.points > 0 ? '+' : ''}${s.points}</span>
+            </div>`).join('');
+    } else {
+        slEl.innerHTML = '<div class="no-sig">Sin señales UW detectadas — mercado fuera de horario o ticker sin actividad institucional</div>';
     }
 }
+
 /* ─── RENDER ─── */
 function renderResult(d){
     // Cabecera
