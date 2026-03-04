@@ -1458,12 +1458,16 @@ def get_uw_congress(ticker):
         except Exception:
             continue
 
-    summary = ''
     if buys + sells > 0:
         summary = f'🏛️ {buys} compras / {sells} ventas congresistas (60d)'
+    elif signals:
+        summary = f'🏛️ {len(signals)} operaciones congresistas detectadas (60d)'
+    else:
+        summary = ''
 
     result = {'congress_score': round(score, 1), 'congress_signals': signals[:5],
-              'congress_summary': summary, 'congress_buys': buys, 'congress_sells': sells}
+              'congress_summary': summary, 'congress_buys': buys, 'congress_sells': sells,
+              'congress_count': len(signals)}
     _cache_set(cache_key, result); return result
 
 

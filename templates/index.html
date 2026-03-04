@@ -324,10 +324,10 @@
             <div id="uwSection" style="display:none">
 
                 <!-- Header sección UW -->
-                <div class="sec-hdr" style="margin-top:8px;margin-bottom:14px">
+                <div class="sec-hdr" style="margin-top:8px;margin-bottom:14px;flex-wrap:wrap;gap:6px">
                     <h2 style="font-size:14px">🐋 Unusual Whales — Flujo Institucional</h2>
                     <div class="sec-line"></div>
-                    <span class="sec-tag" id="uwScoreBadge">Cargando…</span>
+                    <span id="uwScoreBadge" style="padding:3px 10px;border-radius:20px;font-size:10px;font-weight:700;background:var(--neutral-bg);color:var(--neutral);border:1px solid var(--border);white-space:nowrap">Cargando…</span>
                 </div>
 
                 <!-- Fila 1: 4 tarjetas métricas -->
@@ -430,8 +430,9 @@
                 </select>
                 <input type="number" class="form-input" id="trVix" placeholder="VIX" style="width:70px" step="0.1">
                 <select class="form-select" id="trFutures"><option value="">Futuros</option><option value="alcista">🟢 Alcista</option><option value="bajista">🔴 Bajista</option><option value="neutral">⚪ Neutral</option><option value="divergencia">⚠️ Divergencia</option></select>
-                <input type="number" class="form-input" id="trGapReal" placeholder="Gap real %" style="width:100px" step="0.01">
+                <input type="number" class="form-input" id="trGapReal" placeholder="Gap real %" style="width:100px" step="0.01" title="% de diferencia entre el precio de apertura y el cierre anterior. Ej: si cerró a $100 y abrió a $101.5 → escribe 1.5">
                 <input type="text"   class="form-input" id="trNotes"  placeholder="Notas" style="flex:1;min-width:100px">
+                <span style="font-size:10px;color:var(--muted);align-self:center">❓ Gap real = % apertura vs cierre anterior (lo sabes al día siguiente)</span>
                 <button class="btn btn-dark" onclick="addTrade()" style="padding:8px 18px;font-size:12px">+ Añadir</button>
             </div>
         </div>
@@ -586,7 +587,8 @@ function renderUW(uw) {
     if (uw.flow_summary)    summaries.push({icon:'🐋', title:'Opciones Flow',  text: uw.flow_summary,    extra: totalK > 0 ? `Total: ${fmtK(totalK)}` : ''});
     if (uw.dp_summary)      summaries.push({icon:'🏊', title:'Dark Pool',      text: uw.dp_summary,      extra: dpVol > 0 ? `Vol: $${dpVol.toFixed(1)}M` : ''});
     if (uw.tide_signal)     summaries.push({icon:'🌊', title:'Market Tide',    text: uw.tide_signal,     extra: ''});
-    if (uw.congress_summary)summaries.push({icon:'🏛️', title:'Congresistas',  text: uw.congress_summary,extra: `${cgBuys} compras · ${cgSells} ventas`});
+    const cgText = uw.congress_summary || (cgBuys + cgSells > 0 ? `🏛️ ${cgBuys} compras / ${cgSells} ventas congresistas (60d)` : '');
+    if (cgText) summaries.push({icon:'🏛️', title:'Congresistas', text: cgText, extra: `${cgBuys} compras · ${cgSells} ventas`});
 
     const sgEl = document.getElementById('uwSummaryGrid');
     if (summaries.length) {
@@ -801,7 +803,13 @@ function registerTrade(direction){
     else if(futSig.includes('bajista'))    document.getElementById('trFutures').value='bajista';
     else if(futSig.includes('alcista'))    document.getElementById('trFutures').value='alcista';
     else                                   document.getElementById('trFutures').value='neutral';
-    window.scrollTo({top:document.body.scrollHeight,behavior:'smooth'});
+    // Scroll al formulario de nueva operación, no al final de la página
+    const addForm = document.querySelector('.add-trade');
+    if (addForm) {
+        addForm.scrollIntoView({behavior:'smooth', block:'center'});
+        // Focus en el campo de gap real para que el usuario lo rellene
+        setTimeout(() => document.getElementById('trGapReal').focus(), 400);
+    }
 }
 
 function addTrade(){
