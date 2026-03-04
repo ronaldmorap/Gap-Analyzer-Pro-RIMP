@@ -1795,5 +1795,19 @@ def earnings_calendar():
     return jsonify(results)
 
 
+@app.route('/debug_analyze/<ticker>')
+def debug_analyze(ticker):
+    """Debug — muestra el resultado completo incluyendo uw_data."""
+    result = calculate_gap_probability(ticker.upper())
+    uw = result.get('uw_data') or {}
+    return jsonify({
+        'uw_enabled':      UW_ENABLED,
+        'uw_data_present': bool(uw),
+        'uw_keys':         list(uw.keys()) if uw else [],
+        'uw_total_score':  uw.get('uw_total_score'),
+        'uw_data':         uw,
+    })
+
+
 if __name__ == '__main__':
     app.run(debug=True, port=5000)
