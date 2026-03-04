@@ -232,7 +232,10 @@
         <div class="hdot"></div>
         <div><h1>Gap Analyzer Pro</h1><span>FTMO · Market Gap Intelligence</span></div>
     </div>
-    <div class="htime" id="timeDisplay"></div>
+    <div style="display:flex;align-items:center;gap:12px">
+        <div id="uwModeBadge" style="display:none;padding:4px 12px;border-radius:20px;font-size:10px;font-weight:700;cursor:pointer" onclick="window.open('/uw_status','_blank')" title="Click para ver estado UW"></div>
+        <div class="htime" id="timeDisplay"></div>
+    </div>
 </div>
 
 <div class="container">
@@ -723,10 +726,10 @@ function renderResult(d){
 
 
     // Unusual Whales
-    if (d.uw_data) {
+    if (d.uw_data && Object.keys(d.uw_data).length > 0) {
         renderUW(d.uw_data);
     } else {
-        document.getElementById('uwBox').style.display = 'none';
+        document.getElementById('uwSection').style.display = 'none';
     }
 
     document.getElementById('resultCard').style.display='block';
@@ -1015,9 +1018,41 @@ function renderTrades(){
 
 /* ─── INIT ─── */
 document.getElementById('tickerInput').addEventListener('keypress',e=>{if(e.key==='Enter')analyzeStock();});
+
+// Check UW mode on load
+async function checkUWMode(){
+    try {
+        const r = await fetch('/uw_mode');
+        const d = await r.json();
+        const badge = document.getElementById('uwModeBadge');
+        badge.style.display = 'block';
+        if (d.uw_enabled) {
+            badge.textContent = '🐋 UW ON';
+            badge.style.background = 'var(--green-bg)';
+            badge.style.color = 'var(--green)';
+            badge.style.border = '1px solid var(--green-b)';
+            badge.title = 'Unusual Whales activo — datos institucionales en tiempo real';
+        } else {
+            badge.textContent = '📡 Modo gratuito';
+            badge.style.background = 'var(--neutral-bg)';
+            badge.style.color = 'var(--neutral)';
+            badge.style.border = '1px solid var(--border)';
+            badge.title = 'Sin Unusual Whales — usando fuentes gratuitas (RSS, yfinance, SEC)';
+        }
+    } catch(e) {}
+}
+
+// Hide UW section if not enabled
+async function checkUWSectionVisibility(data) {
+    if (!data.uw_data || data.uw_data.uw_total_score === undefined) {
+        document.getElementById('uwSection').style.display = 'none';
+    }
+}
+
 loadEarnings();
 loadDashboard();
 renderTrades();
+checkUWMode();
 
 // Auto-refresco futuros y señales — cada 30s si hay análisis activo
 let _autoRefreshTicker = null;

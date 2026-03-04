@@ -13,15 +13,21 @@ import time
 
 # ── UNUSUAL WHALES CONFIG ────────────────────────────────────────
 # IMPORTANTE: Pon tu nueva API key de UW aquí o en variable de entorno UW_API_KEY
-# Ve a unusualwhales.com → Settings → API → Regenerate key (la anterior quedó expuesta)
-UW_API_KEY = os.environ.get("UW_API_KEY", "REEMPLAZA_CON_TU_NUEVA_KEY")
+UW_API_KEY = os.environ.get("UW_API_KEY", "")
+
+# UW_ENABLED: True si hay key válida configurada, False = modo gratuito
+# Para desactivar UW sin borrar la key: pon UW_ENABLED=false en Render Environment
+_uw_enabled_env = os.environ.get("UW_ENABLED", "true").lower()
+UW_ENABLED = bool(UW_API_KEY and UW_API_KEY not in ("", "REEMPLAZA_CON_TU_NUEVA_KEY") and _uw_enabled_env != "false")
 UW_BASE    = "https://api.unusualwhales.com"
 
 def _uw_headers():
     return {"Authorization": f"Bearer {UW_API_KEY}", "Accept": "application/json"}
 
 def _uw_get(endpoint, params=None, timeout=8):
-    """Helper GET para UW API."""
+    """Helper GET para UW API. Devuelve None si UW está desactivado."""
+    if not UW_ENABLED:
+        return None
     try:
         r = requests.get(
             f"{UW_BASE}{endpoint}",
@@ -1846,7 +1852,7 @@ def calculate_gap_probability(ticker):
                 ex.submit(check_high_impact_news, ticker):   'macro_flag',
                 ex.submit(get_sec_insider_activity, ticker): 'sec',
                 ex.submit(get_vix_level):                     'vix',
-                ex.submit(get_unusual_whales_data, ticker):   'uw',
+                ex.submit(get_unusual_whales_data, ticker):   'uw',  # returns empty dict if UW_ENABLED=False
             }
             results = {}
             for fut in as_completed(futs):
@@ -2115,11 +2121,19 @@ def uw_congress_debug(ticker):
 @app.route('/uw_status')
 def uw_status():
     """Test endpoint — verifica que la API key de UW funciona."""
+    if not UW_ENABLED:
+        return jsonify({'status': 'DISABLED', 'uw_connected': False, 'uw_enabled': False,
+                        'message': 'UW desactivado — modo gratuito activo'})
     result = _uw_get("/api/market/market-tide")
     if result:
-        return jsonify({'status': 'OK', 'uw_connected': True, 'sample': result})
-    return jsonify({'status': 'ERROR', 'uw_connected': False,
-                    'message': 'Verifica tu API key en UW_API_KEY o variable de entorno'})
+        return jsonify({'status': 'OK', 'uw_connected': True, 'uw_enabled': True})
+    return jsonify({'status': 'ERROR', 'uw_connected': False, 'uw_enabled': False,
+                    'message': 'Key inválida o error de conexión'})
+
+@app.route('/uw_mode')
+def uw_mode():
+    """Devuelve al frontend si UW está activo o no."""
+    return jsonify({'uw_enabled': UW_ENABLED})
 
 
 @app.route('/earnings_calendar')
