@@ -1299,7 +1299,7 @@ def get_uw_options_flow(ticker):
              'call_premium':0,'put_premium':0,'total_flow':0,'flow_count':0}
     data = _uw_get(f"/api/stock/{ticker}/flow-recent")
     if not data: _cache_set(cache_key, empty); return empty
-    trades = data.get('data', [])
+    trades = data if isinstance(data, list) else data.get('data', [])
     if not trades: _cache_set(cache_key, empty); return empty
     score=0; signals=[]; total_flow=0; call_prem=0; put_prem=0
     for t in trades[:40]:
@@ -1341,7 +1341,7 @@ def get_uw_darkpool(ticker):
     empty = {'dp_score':0,'dp_signals':[],'dp_summary':'Sin datos dark pool','dp_volume':0,'dp_count':0}
     data = _uw_get(f"/api/darkpool/{ticker}")
     if not data: _cache_set(cache_key, empty); return empty
-    prints = data.get('data', [])
+    prints = data if isinstance(data, list) else data.get('data', [])
     if not prints: _cache_set(cache_key, empty); return empty
     score=0; signals=[]; total_notional=0; buy_vol=0; sell_vol=0; significant=0
     for p in prints[:50]:
@@ -1380,7 +1380,7 @@ def get_uw_market_tide():
     data = _uw_get("/api/market/market-tide")
     if not data: _cache_set(cache_key, empty); return empty
     try:
-        items = data.get('data', [])
+        items = data if isinstance(data, list) else data.get('data', [])
         if not items: _cache_set(cache_key, empty); return empty
         total_call=0; total_put=0
         today = datetime.utcnow().strftime('%Y-%m-%d')
@@ -1413,7 +1413,7 @@ def get_uw_open_interest(ticker):
     if not data: data = _uw_get(f"/api/stock/{ticker}/oi-change")
     if not data: _cache_set(cache_key, empty); return empty
     try:
-        expirations = data.get('data', [])
+        expirations = data if isinstance(data, list) else data.get('data', [])
         if not expirations: _cache_set(cache_key, empty); return empty
         today = datetime.utcnow()
         nearest = None
@@ -1427,7 +1427,7 @@ def get_uw_open_interest(ticker):
         oi_data = _uw_get(f"/api/stock/{ticker}/option-contracts/{nearest}/strikes")
         if not oi_data: oi_data = _uw_get(f"/api/stock/{ticker}/options/oi", params={'expiry':nearest})
         if not oi_data: _cache_set(cache_key, empty); return empty
-        strikes = oi_data.get('data', [])
+        strikes = oi_data if isinstance(oi_data, list) else oi_data.get('data', [])
         if not strikes: _cache_set(cache_key, empty); return empty
         strike_oi={}; total_call_oi=0; total_put_oi=0
         for s in strikes:
@@ -1467,7 +1467,7 @@ def get_uw_congress(ticker):
     empty = {'congress_score':0,'congress_signals':[],'congress_summary':'','congress_buys':0,'congress_sells':0}
     data = _uw_get("/api/congress/recent-trades", params={'ticker':ticker,'limit':50})
     if not data: _cache_set(cache_key, empty); return empty
-    trades_list = data.get('data', [])
+    trades_list = data if isinstance(data, list) else data.get('data', [])
     score=0; signals=[]; buys=0; sells=0
     for t in trades_list[:10]:
         try:
@@ -1509,8 +1509,16 @@ def get_unusual_whales_data(ticker):
         f_tide     = ex.submit(get_uw_market_tide)
         f_oi       = ex.submit(get_uw_open_interest, ticker)
         f_congress = ex.submit(get_uw_congress,      ticker)
-    flow_data=f_flow.result(); dp_data=f_dp.result(); tide_data=f_tide.result()
-    oi_data=f_oi.result();     congress_data=f_congress.result()
+    try: flow_data=f_flow.result()
+    except Exception: flow_data={'uw_flow_score':0,'uw_flow_signals':[],'uw_flow_summary':'','call_premium':0,'put_premium':0,'total_flow':0,'flow_count':0}
+    try: dp_data=f_dp.result()
+    except Exception: dp_data={'dp_score':0,'dp_signals':[],'dp_summary':'','dp_volume':0,'dp_count':0}
+    try: tide_data=f_tide.result()
+    except Exception: tide_data={'tide_score':0,'tide_signal':'','tide_bullish':None,'call_pct':50,'net_premium':0}
+    try: oi_data=f_oi.result()
+    except Exception: oi_data={'oi_score':0,'oi_signals':[],'oi_summary':'','max_pain':0,'call_oi':0,'put_oi':0,'oi_ratio':1.0,'oi_expiry':''}
+    try: congress_data=f_congress.result()
+    except Exception: congress_data={'congress_score':0,'congress_signals':[],'congress_summary':'','congress_buys':0,'congress_sells':0}
     total_score = (flow_data.get('uw_flow_score',0)*1.5 + dp_data.get('dp_score',0)*1.3 +
                    oi_data.get('oi_score',0)*1.2 + tide_data.get('tide_score',0)*0.8 +
                    congress_data.get('congress_score',0)*0.5)
