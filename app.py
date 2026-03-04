@@ -1395,7 +1395,7 @@ def get_uw_congress(ticker):
     empty = {'congress_score': 0, 'congress_signals': [], 'congress_summary': '',
              'congress_buys': 0, 'congress_sells': 0}
 
-    data = _uw_get("/api/congress/recent-trades", params={'ticker': ticker, 'limit': 20})
+    data = _uw_get("/api/congress/recent-trades", params={'ticker': ticker, 'limit': 50})
     if not data:
         _cache_set(cache_key, empty); return empty
 
@@ -1404,7 +1404,7 @@ def get_uw_congress(ticker):
 
     for t in trades_list[:10]:
         try:
-            txn_type   = (t.get('txn_type') or t.get('type') or '').lower()
+            txn_type   = (t.get('txn_type') or '').lower()  # 'type' es siempre null en UW
             politician = t.get('name') or t.get('reporter') or 'Político'
             amounts    = t.get('amounts') or t.get('amount') or ''
             tx_date    = t.get('transaction_date') or t.get('filed_at') or ''
@@ -1434,10 +1434,10 @@ def get_uw_congress(ticker):
             except Exception:
                 pass
 
-            if days_ago > 60:
+            if days_ago > 90:
                 continue
 
-            rw = 1.0 if days_ago <= 7 else 0.7 if days_ago <= 30 else 0.4
+            rw = 1.0 if days_ago <= 7 else 0.7 if days_ago <= 30 else 0.5 if days_ago <= 60 else 0.3
 
             if 'buy' in txn_type or 'purchase' in txn_type:
                 pts = 1.5 * rw; buys += 1; emoji = '🏛️🟢'
@@ -1459,9 +1459,9 @@ def get_uw_congress(ticker):
             continue
 
     if buys + sells > 0:
-        summary = f'🏛️ {buys} compras / {sells} ventas congresistas (60d)'
+        summary = f'🏛️ {buys} compras / {sells} ventas congresistas (90d)'
     elif signals:
-        summary = f'🏛️ {len(signals)} operaciones congresistas detectadas (60d)'
+        summary = f'🏛️ {len(signals)} operaciones congresistas detectadas (90d)'
     else:
         summary = ''
 
@@ -2105,7 +2105,7 @@ def uw_congress_debug(ticker):
                 'days_ago': days_ago,
                 'parse_error': parse_error,
                 'txn_type': t.get('txn_type'),
-                'within_60d': days_ago <= 60
+                'within_90d': days_ago <= 90
             })
     else:
         result['api_response'] = str(raw)[:500] if raw else 'None/Empty'
