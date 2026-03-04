@@ -1270,235 +1270,6 @@ def get_ftmo_signal(probability, raw_direction, futures_warning,
 # ═══════════════════════════════════════════════════════════════════
 #  CÁLCULO PRINCIPAL
 # ═══════════════════════════════════════════════════════════════════
-def calculate_gap_probability(ticker):
-    try:
-        with ThreadPoolExecutor(max_workers=5) as ex:
-            futs = {
-                ex.submit(get_historical_gap_stats, ticker): 'hist',
-                ex.submit(get_technical_score,      ticker): 'tech',
-                ex.submit(get_earnings_info,        ticker): 'earn',
-                ex.submit(get_whale_signals,        ticker): 'whale',
-                ex.submit(get_overnight_drift,      ticker): 'drift',
-                ex.submit(get_gap_room,             ticker): 'room',
-                ex.submit(get_futures_sentiment,    ticker): 'futures',
-                ex.submit(get_fakeout_detector,     ticker): 'fakeout',
-                ex.submit(get_volume_analysis,      ticker): 'volume',
-                ex.submit(check_high_impact_news,   ticker): 'macro_flag',
-                ex.submit(get_sec_insider_activity, ticker): 'sec',
-                ex.submit(get_vix_level):                    'vix',
-                ex.submit(get_unusual_whales_data,  ticker): 'uw',
-            }
-            results = {}
-            for fut in as_completed(futs):
-                key = futs[fut]
-                try:    results[key] = fut.result()
-                except: results[key] = None
-
-        # ── Desempaquetar ─────────────────────────────────────────
-        hist_prob                            = results.get('hist') or 50
-        tech_score                           = results.get('tech') or 0
-        earnings                             = results.get('earn') or {'has_earnings': False, 'days_to_earnings': 999, 'status': 'unknown'}
-        whale_score, whale_signals           = results.get('whale') or (0, [])
-        drift, drift_trend, recent_drift, is_monday = results.get('drift') or (0, 'neutral', 0, False)
-        gap_room                             = results.get('room') or {'room_up': 5, 'room_down': 5, 'near_resistance': False}
-        fut_score, fut_signal, fut_change, idx_name = results.get('futures') or (0, 'Sin datos', 0, 'Índice')
-
-        is_fakeout, fakeout_reason, rsi_val         = results.get('fakeout') or (False, '', 50)
-        vol_data                             = results.get('volume') or {'rvol': 1.0, 'volume_signal': 'Sin datos', 'volume_score': 0, 'absorption': False, 'capitulation': False, 'anomaly': False}
-        macro_event, macro_reason, macro_date, macro_time, macro_sent = results.get('macro_flag') or (False, None, None, None, None)
-        sec_data                             = results.get('sec') or {'score': 0, 'signals': [], 'summary': 'Sin datos SEC'}
-        vix_level                            = results.get('vix') or 15.0
-        uw_data                              = results.get('uw') or {}
-
-        # ── Probabilidad ─────────────────────────────────────────
-        # PRIMERA PASADA: calcular dirección base sin señales relativas
-        final = hist_prob + tech_score * 0.3
-
-        dte = earnings.get('days_to_earnings', 999)
-        if   dte <= 1: final += 10
-        elif dte <= 7: final += 5
-
-        # Señales independientes de dirección (se calculan antes de saber raw_dir)
-        final += 5 if drift > 0.1 else -5 if drift < -0.1 else 0
-        final += fut_score * 10
-        # StockTwits eliminado — ruido retail sin correlación con gaps
-        final += vol_data['volume_score'] * 5
-
-        if gap_room.get('near_resistance') and final >= 50: final -= 8
-        if is_fakeout and final >= 50:                       final -= 10
-
-        # Dirección base (antes de aplicar señales relativas)
-        raw_dir_base = 'ALCISTA' if final >= 50 else 'BAJISTA'
-
-        # SEGUNDA PASADA: señales institucionales y SEC relativas a la dirección
-        direction_mult = 1 if raw_dir_base == 'ALCISTA' else -1
-
-        final += whale_score * 4 * direction_mult
-        final += sec_data['score'] * 3 * direction_mult
-
-        # UW score — integrar si está disponible
-        uw_score = uw_data.get('uw_total_score', 0)
-        if uw_score != 0:
-            final += uw_score * 3 * direction_mult
-            # Market Tide como filtro sistémico
-            tide_bullish = uw_data.get('tide_bullish')
-            if tide_bullish is True  and raw_dir_base == 'ALCISTA': final += 5
-            elif tide_bullish is False and raw_dir_base == 'BAJISTA': final += 5
-            elif tide_bullish is True  and raw_dir_base == 'BAJISTA': final -= 5
-            elif tide_bullish is False and raw_dir_base == 'ALCISTA': final -= 5
-
-        final     = max(15, min(85, final))
-        raw_dir   = 'ALCISTA' if final >= 50 else 'BAJISTA'
-        disp_prob = final if final >= 50 else 100 - final
-
-        fut_warning = (raw_dir == 'ALCISTA' and fut_change <= -0.3) or \
-                      (raw_dir == 'BAJISTA' and fut_change >= 0.3)
-
-        # ── Semáforo FTMO ────────────────────────────────────────
-        ftmo_signal = get_ftmo_signal(
-            probability     = round(disp_prob),
-            raw_direction   = raw_dir,
-            futures_warning = fut_warning,
-            is_fakeout      = is_fakeout,
-            near_resistance = gap_room.get('near_resistance', False),
-            earnings_days   = dte,
-            sec_score       = sec_data['score'],
-            whale_score     = whale_score,
-            vol_score       = vol_data['volume_score'],
-            macro_event     = macro_event,
-            macro_title     = macro_reason,
-            macro_sent      = macro_sent,
-            macro_date      = macro_date,
-            macro_time      = macro_time,
-            drift_trend     = drift_trend,
-            drift_avg       = drift,
-            hist_pct        = hist_prob,
-            rsi_val         = rsi_val,
-            fut_signal      = fut_signal,
-            fut_change      = fut_change,
-            index_name      = idx_name,
-            vol_signal      = vol_data['volume_signal'],
-            rvol            = vol_data['rvol'],
-            vol_pct         = vol_data.get('price_change_pct', 0),
-            vix_level       = vix_level,
-            is_monday       = is_monday
-        )
-
-        # Precio actual
-        current_price = None
-        try:
-            fi = yf.Ticker(ticker).fast_info
-            current_price = float(fi.last_price) if hasattr(fi, 'last_price') else None
-        except Exception:
-            pass
-
-        return {
-            'ticker':           ticker,
-            'probability':      round(disp_prob),
-            'raw_direction':    raw_dir,
-            'current_price':    round(current_price, 2) if current_price else None,
-            'ftmo_signal':      ftmo_signal,
-            'earnings':         earnings,
-            'rsi_value':        rsi_val,
-            'overnight_drift':  float(drift),
-            'drift_trend':      drift_trend,
-            'gap_room':         gap_room,
-            'futures_signal':   fut_signal,
-            'futures_change':   fut_change,
-            'futures_warning':  fut_warning,
-            'index_name':       idx_name,
-
-            'is_fakeout':       is_fakeout,
-            'fakeout_reason':   fakeout_reason,
-            'volume':           vol_data,
-            'whale_signals':    whale_signals,
-            'whale_score':      float(whale_score),
-            'sec':              sec_data,
-            'macro_event':      macro_event,
-            'macro_reason':     macro_reason,
-            'macro_date':       macro_date,
-            'macro_time':       macro_time,
-            'macro_sent':       macro_sent,
-            'vix_level':        vix_level,
-            'uw_data':          uw_data if uw_data else None,
-        }
-
-    except Exception as e:
-        empty_ftmo = {'color': 'red', 'titulo': '🔴 Error', 'desc': str(e),
-                      'favor': [], 'contra': []}
-        return {
-            'ticker': ticker, 'probability': 50, 'raw_direction': 'NEUTRAL',
-            'current_price': None, 'ftmo_signal': empty_ftmo,
-            'earnings': {'has_earnings': False, 'days_to_earnings': 999, 'status': 'unknown'},
-            'rsi_value': 50, 'overnight_drift': 0, 'drift_trend': 'neutral',
-            'gap_room': {'room_up': 5, 'room_down': 5, 'near_resistance': False},
-            'futures_signal': 'Sin datos', 'futures_change': 0,
-            'futures_warning': False, 'index_name': 'Índice',
-
-            'is_fakeout': False, 'fakeout_reason': '',
-            'volume': {'rvol': 1.0, 'volume_signal': 'Sin datos', 'volume_score': 0,
-                       'absorption': False, 'capitulation': False, 'anomaly': False},
-            'whale_signals': [], 'whale_score': 0,
-            'sec': {'score': 0, 'signals': [], 'summary': 'Sin datos'},
-            'macro_event': False, 'macro_reason': None, 'macro_date': None, 'macro_time': None, 'macro_sent': None,
-        }
-
-
-# ═══════════════════════════════════════════════════════════════════
-#  RUTAS
-# ═══════════════════════════════════════════════════════════════════
-@app.route('/')
-def index():
-    return render_template('index.html')
-
-@app.route('/analyze', methods=['POST'])
-def analyze():
-    ticker = request.json.get('ticker', '').upper()
-    # Limpiar caché del ticker específico para datos frescos
-    # (excepto SEC Form 4 que solo cambia 2 veces/mes)
-    with _cache_lock:
-        keys_to_clear = [k for k in _cache if (
-            ticker.lower() in k.lower() or
-            k.startswith('vix') or
-            k.startswith('futures_')
-        ) and not k.startswith('sec_')]
-        for k in keys_to_clear:
-            _cache.pop(k, None)
-    return jsonify(calculate_gap_probability(ticker))
-
-@app.route('/dashboard')
-def dashboard():
-    # Limpiar caché antes de recalcular para que los datos sean siempre frescos
-    with _cache_lock:
-        keys_to_clear = [k for k in _cache if not k.startswith('sec_')]
-        for k in keys_to_clear:
-            _cache.pop(k, None)
-    with ThreadPoolExecutor(max_workers=3) as ex:
-        futs = {ex.submit(calculate_gap_probability, t): t for t in MARKET_LEADERS}
-        raw  = {}
-        for fut in as_completed(futs):
-            t = futs[fut]
-            try:    raw[t] = fut.result()
-            except: raw[t] = {'ticker': t, 'probability': 50, 'raw_direction': 'NEUTRAL',
-                              'ftmo_signal': {'color': 'red', 'titulo': 'Error', 'desc': '', 'favor': [], 'contra': []}}
-    return jsonify([raw[t] for t in MARKET_LEADERS if t in raw])
-
-@app.route('/earnings_calendar')
-def earnings_calendar():
-    with ThreadPoolExecutor(max_workers=5) as ex:
-        futs = {ex.submit(get_earnings_info, t): t for t in MARKET_LEADERS}
-        raw  = {}
-        for fut in as_completed(futs):
-            t = futs[fut]
-            try:    raw[t] = fut.result()
-            except: raw[t] = {'has_earnings': False, 'days_to_earnings': 999,
-                              'earnings_date': None, 'investor_url': INVESTOR_URLS.get(t, ''),
-                              'status': 'unknown'}
-    results = [{'ticker': t, 'company': COMPANY_NAMES.get(t, t), **raw.get(t, {})}
-               for t in MARKET_LEADERS]
-    results.sort(key=lambda x: x['days_to_earnings'])
-    return jsonify(results)
-
 # ═══════════════════════════════════════════════════════════════════
 #  UNUSUAL WHALES — CONFIGURACIÓN
 # ═══════════════════════════════════════════════════════════════════
@@ -1792,6 +1563,236 @@ def cache_status():
         entries=[{'key':k,'age_s':round(time.time()-v['ts']),'ttl':_get_ttl(k)} for k,v in _cache.items()]
     entries.sort(key=lambda x: x['age_s'])
     return jsonify({'total':len(entries),'entries':entries[:30]})
+
+
+def calculate_gap_probability(ticker):
+    try:
+        with ThreadPoolExecutor(max_workers=5) as ex:
+            futs = {
+                ex.submit(get_historical_gap_stats, ticker): 'hist',
+                ex.submit(get_technical_score,      ticker): 'tech',
+                ex.submit(get_earnings_info,        ticker): 'earn',
+                ex.submit(get_whale_signals,        ticker): 'whale',
+                ex.submit(get_overnight_drift,      ticker): 'drift',
+                ex.submit(get_gap_room,             ticker): 'room',
+                ex.submit(get_futures_sentiment,    ticker): 'futures',
+                ex.submit(get_fakeout_detector,     ticker): 'fakeout',
+                ex.submit(get_volume_analysis,      ticker): 'volume',
+                ex.submit(check_high_impact_news,   ticker): 'macro_flag',
+                ex.submit(get_sec_insider_activity, ticker): 'sec',
+                ex.submit(get_vix_level):                    'vix',
+                ex.submit(get_unusual_whales_data,  ticker): 'uw',
+            }
+            results = {}
+            for fut in as_completed(futs):
+                key = futs[fut]
+                try:    results[key] = fut.result()
+                except: results[key] = None
+
+        # ── Desempaquetar ─────────────────────────────────────────
+        hist_prob                            = results.get('hist') or 50
+        tech_score                           = results.get('tech') or 0
+        earnings                             = results.get('earn') or {'has_earnings': False, 'days_to_earnings': 999, 'status': 'unknown'}
+        whale_score, whale_signals           = results.get('whale') or (0, [])
+        drift, drift_trend, recent_drift, is_monday = results.get('drift') or (0, 'neutral', 0, False)
+        gap_room                             = results.get('room') or {'room_up': 5, 'room_down': 5, 'near_resistance': False}
+        fut_score, fut_signal, fut_change, idx_name = results.get('futures') or (0, 'Sin datos', 0, 'Índice')
+
+        is_fakeout, fakeout_reason, rsi_val         = results.get('fakeout') or (False, '', 50)
+        vol_data                             = results.get('volume') or {'rvol': 1.0, 'volume_signal': 'Sin datos', 'volume_score': 0, 'absorption': False, 'capitulation': False, 'anomaly': False}
+        macro_event, macro_reason, macro_date, macro_time, macro_sent = results.get('macro_flag') or (False, None, None, None, None)
+        sec_data                             = results.get('sec') or {'score': 0, 'signals': [], 'summary': 'Sin datos SEC'}
+        vix_level                            = results.get('vix') or 15.0
+        uw_data                              = results.get('uw') or {}
+
+        # ── Probabilidad ─────────────────────────────────────────
+        # PRIMERA PASADA: calcular dirección base sin señales relativas
+        final = hist_prob + tech_score * 0.3
+
+        dte = earnings.get('days_to_earnings', 999)
+        if   dte <= 1: final += 10
+        elif dte <= 7: final += 5
+
+        # Señales independientes de dirección (se calculan antes de saber raw_dir)
+        final += 5 if drift > 0.1 else -5 if drift < -0.1 else 0
+        final += fut_score * 10
+        # StockTwits eliminado — ruido retail sin correlación con gaps
+        final += vol_data['volume_score'] * 5
+
+        if gap_room.get('near_resistance') and final >= 50: final -= 8
+        if is_fakeout and final >= 50:                       final -= 10
+
+        # Dirección base (antes de aplicar señales relativas)
+        raw_dir_base = 'ALCISTA' if final >= 50 else 'BAJISTA'
+
+        # SEGUNDA PASADA: señales institucionales y SEC relativas a la dirección
+        direction_mult = 1 if raw_dir_base == 'ALCISTA' else -1
+
+        final += whale_score * 4 * direction_mult
+        final += sec_data['score'] * 3 * direction_mult
+
+        # UW score — integrar si está disponible
+        uw_score = uw_data.get('uw_total_score', 0)
+        if uw_score != 0:
+            final += uw_score * 3 * direction_mult
+            # Market Tide como filtro sistémico
+            tide_bullish = uw_data.get('tide_bullish')
+            if tide_bullish is True  and raw_dir_base == 'ALCISTA': final += 5
+            elif tide_bullish is False and raw_dir_base == 'BAJISTA': final += 5
+            elif tide_bullish is True  and raw_dir_base == 'BAJISTA': final -= 5
+            elif tide_bullish is False and raw_dir_base == 'ALCISTA': final -= 5
+
+        final     = max(15, min(85, final))
+        raw_dir   = 'ALCISTA' if final >= 50 else 'BAJISTA'
+        disp_prob = final if final >= 50 else 100 - final
+
+        fut_warning = (raw_dir == 'ALCISTA' and fut_change <= -0.3) or \
+                      (raw_dir == 'BAJISTA' and fut_change >= 0.3)
+
+        # ── Semáforo FTMO ────────────────────────────────────────
+        ftmo_signal = get_ftmo_signal(
+            probability     = round(disp_prob),
+            raw_direction   = raw_dir,
+            futures_warning = fut_warning,
+            is_fakeout      = is_fakeout,
+            near_resistance = gap_room.get('near_resistance', False),
+            earnings_days   = dte,
+            sec_score       = sec_data['score'],
+            whale_score     = whale_score,
+            vol_score       = vol_data['volume_score'],
+            macro_event     = macro_event,
+            macro_title     = macro_reason,
+            macro_sent      = macro_sent,
+            macro_date      = macro_date,
+            macro_time      = macro_time,
+            drift_trend     = drift_trend,
+            drift_avg       = drift,
+            hist_pct        = hist_prob,
+            rsi_val         = rsi_val,
+            fut_signal      = fut_signal,
+            fut_change      = fut_change,
+            index_name      = idx_name,
+            vol_signal      = vol_data['volume_signal'],
+            rvol            = vol_data['rvol'],
+            vol_pct         = vol_data.get('price_change_pct', 0),
+            vix_level       = vix_level,
+            is_monday       = is_monday
+        )
+
+        # Precio actual
+        current_price = None
+        try:
+            fi = yf.Ticker(ticker).fast_info
+            current_price = float(fi.last_price) if hasattr(fi, 'last_price') else None
+        except Exception:
+            pass
+
+        return {
+            'ticker':           ticker,
+            'probability':      round(disp_prob),
+            'raw_direction':    raw_dir,
+            'current_price':    round(current_price, 2) if current_price else None,
+            'ftmo_signal':      ftmo_signal,
+            'earnings':         earnings,
+            'rsi_value':        rsi_val,
+            'overnight_drift':  float(drift),
+            'drift_trend':      drift_trend,
+            'gap_room':         gap_room,
+            'futures_signal':   fut_signal,
+            'futures_change':   fut_change,
+            'futures_warning':  fut_warning,
+            'index_name':       idx_name,
+
+            'is_fakeout':       is_fakeout,
+            'fakeout_reason':   fakeout_reason,
+            'volume':           vol_data,
+            'whale_signals':    whale_signals,
+            'whale_score':      float(whale_score),
+            'sec':              sec_data,
+            'macro_event':      macro_event,
+            'macro_reason':     macro_reason,
+            'macro_date':       macro_date,
+            'macro_time':       macro_time,
+            'macro_sent':       macro_sent,
+            'vix_level':        vix_level,
+            'uw_data':          uw_data if uw_data else None,
+        }
+
+    except Exception as e:
+        empty_ftmo = {'color': 'red', 'titulo': '🔴 Error', 'desc': str(e),
+                      'favor': [], 'contra': []}
+        return {
+            'ticker': ticker, 'probability': 50, 'raw_direction': 'NEUTRAL',
+            'current_price': None, 'ftmo_signal': empty_ftmo,
+            'earnings': {'has_earnings': False, 'days_to_earnings': 999, 'status': 'unknown'},
+            'rsi_value': 50, 'overnight_drift': 0, 'drift_trend': 'neutral',
+            'gap_room': {'room_up': 5, 'room_down': 5, 'near_resistance': False},
+            'futures_signal': 'Sin datos', 'futures_change': 0,
+            'futures_warning': False, 'index_name': 'Índice',
+
+            'is_fakeout': False, 'fakeout_reason': '',
+            'volume': {'rvol': 1.0, 'volume_signal': 'Sin datos', 'volume_score': 0,
+                       'absorption': False, 'capitulation': False, 'anomaly': False},
+            'whale_signals': [], 'whale_score': 0,
+            'sec': {'score': 0, 'signals': [], 'summary': 'Sin datos'},
+            'macro_event': False, 'macro_reason': None, 'macro_date': None, 'macro_time': None, 'macro_sent': None,
+        }
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  RUTAS
+# ═══════════════════════════════════════════════════════════════════
+@app.route('/')
+def index():
+    return render_template('index.html')
+
+@app.route('/analyze', methods=['POST'])
+def analyze():
+    ticker = request.json.get('ticker', '').upper()
+    # Limpiar caché del ticker específico para datos frescos
+    # (excepto SEC Form 4 que solo cambia 2 veces/mes)
+    with _cache_lock:
+        keys_to_clear = [k for k in _cache if (
+            ticker.lower() in k.lower() or
+            k.startswith('vix') or
+            k.startswith('futures_')
+        ) and not k.startswith('sec_')]
+        for k in keys_to_clear:
+            _cache.pop(k, None)
+    return jsonify(calculate_gap_probability(ticker))
+
+@app.route('/dashboard')
+def dashboard():
+    # Limpiar caché antes de recalcular para que los datos sean siempre frescos
+    with _cache_lock:
+        keys_to_clear = [k for k in _cache if not k.startswith('sec_')]
+        for k in keys_to_clear:
+            _cache.pop(k, None)
+    with ThreadPoolExecutor(max_workers=3) as ex:
+        futs = {ex.submit(calculate_gap_probability, t): t for t in MARKET_LEADERS}
+        raw  = {}
+        for fut in as_completed(futs):
+            t = futs[fut]
+            try:    raw[t] = fut.result()
+            except: raw[t] = {'ticker': t, 'probability': 50, 'raw_direction': 'NEUTRAL',
+                              'ftmo_signal': {'color': 'red', 'titulo': 'Error', 'desc': '', 'favor': [], 'contra': []}}
+    return jsonify([raw[t] for t in MARKET_LEADERS if t in raw])
+
+@app.route('/earnings_calendar')
+def earnings_calendar():
+    with ThreadPoolExecutor(max_workers=5) as ex:
+        futs = {ex.submit(get_earnings_info, t): t for t in MARKET_LEADERS}
+        raw  = {}
+        for fut in as_completed(futs):
+            t = futs[fut]
+            try:    raw[t] = fut.result()
+            except: raw[t] = {'has_earnings': False, 'days_to_earnings': 999,
+                              'earnings_date': None, 'investor_url': INVESTOR_URLS.get(t, ''),
+                              'status': 'unknown'}
+    results = [{'ticker': t, 'company': COMPANY_NAMES.get(t, t), **raw.get(t, {})}
+               for t in MARKET_LEADERS]
+    results.sort(key=lambda x: x['days_to_earnings'])
+    return jsonify(results)
 
 
 if __name__ == '__main__':
