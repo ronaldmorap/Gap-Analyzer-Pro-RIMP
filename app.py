@@ -1797,16 +1797,38 @@ def earnings_calendar():
 
 @app.route('/debug_analyze/<ticker>')
 def debug_analyze(ticker):
-    """Debug — muestra el resultado completo incluyendo uw_data."""
-    result = calculate_gap_probability(ticker.upper())
-    uw = result.get('uw_data') or {}
-    return jsonify({
-        'uw_enabled':      UW_ENABLED,
-        'uw_data_present': bool(uw),
-        'uw_keys':         list(uw.keys()) if uw else [],
-        'uw_total_score':  uw.get('uw_total_score'),
-        'uw_data':         uw,
-    })
+    """Debug — muestra errores reales de cada función UW."""
+    ticker = ticker.upper()
+    results = {}
+    
+    # Test each UW function individually with real error capture
+    def test_fn(name, fn, *args):
+        try:
+            r = fn(*args)
+            results[name] = {'ok': True, 'keys': list(r.keys()) if r else [], 'sample': str(r)[:200]}
+        except Exception as e:
+            import traceback
+            results[name] = {'ok': False, 'error': str(e), 'trace': traceback.format_exc()[-500:]}
+    
+    test_fn('1_uw_enabled', lambda: UW_ENABLED)
+    test_fn('2_api_key_set', lambda: bool(UW_API_KEY and len(UW_API_KEY) > 10))
+    test_fn('3_market_tide', get_uw_market_tide)
+    test_fn('4_options_flow', get_uw_options_flow, ticker)
+    test_fn('5_darkpool', get_uw_darkpool, ticker)
+    test_fn('6_congress', get_uw_congress, ticker)
+    test_fn('7_combined', get_unusual_whales_data, ticker)
+    
+    # Also test raw API call
+    try:
+        import requests as req
+        r = req.get(f"{UW_BASE}/api/market/market-tide",
+                   headers={"Authorization": f"Bearer {UW_API_KEY}", "Accept": "application/json"},
+                   timeout=10)
+        results['8_raw_api'] = {'status': r.status_code, 'body': r.text[:300]}
+    except Exception as e:
+        results['8_raw_api'] = {'error': str(e)}
+    
+    return jsonify(results)
 
 
 if __name__ == '__main__':
