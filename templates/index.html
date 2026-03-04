@@ -214,6 +214,15 @@
         .no-trades{text-align:center;color:var(--muted);padding:36px;font-size:13px;font-style:italic}
         .ls-badge{font-size:10px;color:var(--green);background:var(--green-bg);
             border:1px solid var(--green-b);border-radius:20px;padding:3px 10px;font-weight:600}
+
+        /* UW mobile fixes */
+        @media(max-width:600px){
+            #uwMetrics{grid-template-columns:repeat(2,1fr) !important}
+            #uwSummaryGrid{grid-template-columns:1fr !important}
+        }
+        @media(max-width:380px){
+            #uwMetrics{grid-template-columns:1fr !important}
+        }
     </style>
 </head>
 <body>
@@ -322,7 +331,7 @@
                 </div>
 
                 <!-- Fila 1: 4 tarjetas métricas -->
-                <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:10px" id="uwMetrics">
+                <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:10px;grid-template-columns:repeat(auto-fill,minmax(140px,1fr))" id="uwMetrics">
                     <!-- generado por JS -->
                 </div>
 

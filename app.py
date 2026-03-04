@@ -1413,8 +1413,24 @@ def get_uw_congress(ticker):
             days_ago = 999
             try:
                 if tx_date:
-                    dt_f = datetime.strptime(tx_date[:10].strip(), '%Y-%m-%d')
-                    days_ago = (datetime.utcnow() - dt_f).days
+                    clean = tx_date[:10].strip()
+                    # Handle both '2026-02-01' and '2026-02-1' formats
+                    for fmt in ('%Y-%m-%d', '%Y-%m-%#d', '%Y-%-m-%-d'):
+                        try:
+                            dt_f = datetime.strptime(clean, fmt)
+                            days_ago = (datetime.utcnow() - dt_f).days
+                            break
+                        except Exception:
+                            continue
+                    # Fallback: parse parts manually
+                    if days_ago == 999 and '-' in clean:
+                        parts = clean.split('-')
+                        if len(parts) == 3:
+                            try:
+                                dt_f = datetime(int(parts[0]), int(parts[1]), int(parts[2]))
+                                days_ago = (datetime.utcnow() - dt_f).days
+                            except Exception:
+                                pass
             except Exception:
                 pass
 
