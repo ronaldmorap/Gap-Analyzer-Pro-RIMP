@@ -2044,5 +2044,55 @@ def earnings_calendar():
     results.sort(key=lambda x: x['days_to_earnings'])
     return jsonify(results)
 
+
+@app.route('/uw_debug/<ticker>')
+def uw_debug(ticker):
+    """Debug endpoint — muestra respuesta raw de cada endpoint UW para un ticker."""
+    ticker = ticker.upper()
+    results = {}
+    
+    endpoints = [
+        ('flow_recent',    f'/api/stock/{ticker}/flow-recent'),
+        ('darkpool',       f'/api/darkpool/{ticker}'),
+        ('flow_alerts',    f'/api/option-trades/flow-alerts'),
+        ('news',           f'/api/news/{ticker}'),
+        ('market_tide',    f'/api/market/market-tide'),
+        ('congress',       f'/api/congress/recent-trades'),
+    ]
+    
+    for name, endpoint in endpoints:
+        try:
+            params = {}
+            if name == 'flow_alerts':  params = {'ticker_symbol': ticker, 'limit': 3}
+            if name == 'congress':     params = {'ticker': ticker, 'limit': 3}
+            
+            r = requests.get(
+                f"{UW_BASE}{endpoint}",
+                headers=_uw_headers(),
+                params=params,
+                timeout=10
+            )
+            data = r.json() if r.status_code == 200 else None
+            
+            # Show structure: keys + first item sample
+            if data and isinstance(data, dict):
+                keys = list(data.keys())
+                sample = {}
+                for k, v in data.items():
+                    if isinstance(v, list) and len(v) > 0:
+                        sample[k] = f"[{len(v)} items] first: {str(v[0])[:300]}"
+                    else:
+                        sample[k] = str(v)[:200]
+                results[name] = {'status': r.status_code, 'keys': keys, 'sample': sample}
+            elif data and isinstance(data, list):
+                results[name] = {'status': r.status_code, 'type': 'list', 
+                                 'count': len(data), 'first': str(data[0])[:300] if data else None}
+            else:
+                results[name] = {'status': r.status_code, 'error': r.text[:300]}
+        except Exception as e:
+            results[name] = {'status': 'exception', 'error': str(e)}
+    
+    return jsonify(results)
+
 if __name__ == '__main__':
     app.run(debug=True, port=5000)
