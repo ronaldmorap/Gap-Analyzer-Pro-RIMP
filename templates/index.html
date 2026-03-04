@@ -560,7 +560,19 @@ function renderUW(uw) {
     const scoreBg  = score > 2 ? 'border-color:var(--green-b);background:var(--green-bg)'
                    : score < -2 ? 'border-color:var(--red-b);background:var(--red-bg)' : '';
 
-    function fmtK(k) { return k >= 1000 ? '$'+(k/1000).toFixed(1)+'M' : k > 0 ? '$'+k+'K' : '—'; }
+    // OI / Max Pain
+    const maxPain  = uw.max_pain  || 0;
+    const oiRatio  = uw.oi_ratio  || 1.0;
+    const callOI   = uw.call_oi   || 0;
+    const putOI    = uw.put_oi    || 0;
+    const oiExpiry = uw.oi_expiry || '';
+    const oiBg     = oiRatio >= 1.5  ? 'border-color:var(--green-b);background:var(--green-bg)'
+                   : oiRatio <= 0.67 ? 'border-color:var(--red-b);background:var(--red-bg)' : '';
+    const oiColor  = oiRatio >= 1.5  ? 'var(--green)'
+                   : oiRatio <= 0.67 ? 'var(--red)' : 'var(--text2)';
+
+    function fmtK(k)  { return k >= 1000 ? '$'+(k/1000).toFixed(1)+'M' : k > 0 ? '$'+k+'K' : '—'; }
+    function fmtOI(n) { return n >= 1000 ? (n/1000).toFixed(0)+'K' : n > 0 ? n.toString() : '—'; }
 
     document.getElementById('uwMetrics').innerHTML = `
         <div class="data-card" style="${callBg}">
@@ -578,10 +590,15 @@ function renderUW(uw) {
             <div class="dc-val" style="color:${tideColor};font-size:16px;font-weight:800">${tidePct.toFixed(0)}% / ${(100-tidePct).toFixed(0)}%</div>
             <div style="font-size:10px;color:var(--muted);margin-top:3px">CALLs / PUTs · net $${Math.abs(tideNet)}M</div>
         </div>
+        <div class="data-card" style="${oiBg}">
+            <div class="dc-lbl">🎯 OI Ratio · Max Pain</div>
+            <div class="dc-val" style="color:${oiColor};font-size:16px;font-weight:800">${maxPain > 0 ? '$'+maxPain.toFixed(0) : '—'}</div>
+            <div style="font-size:10px;color:var(--muted);margin-top:3px">${oiRatio.toFixed(1)}x · ${fmtOI(callOI)}C / ${fmtOI(putOI)}P${oiExpiry?' · '+oiExpiry:''}</div>
+        </div>
         <div class="data-card" style="${scoreBg}">
             <div class="dc-lbl">⚡ Score UW Total</div>
             <div class="dc-val" style="color:${scoreColor};font-size:22px;font-weight:800">${score > 0 ? '+' : ''}${score}</div>
-            <div style="font-size:10px;color:var(--muted);margin-top:3px">${alertCnt} alerts · DP $${dpVol.toFixed(1)}M (${dpCount} prints)</div>
+            <div style="font-size:10px;color:var(--muted);margin-top:3px">DP $${dpVol.toFixed(1)}M (${dpCount} prints)</div>
         </div>
     `;
 
@@ -591,6 +608,7 @@ function renderUW(uw) {
     if (uw.dp_summary)      summaries.push({icon:'🏊', title:'Dark Pool',      text: uw.dp_summary,      extra: dpVol > 0 ? `Vol: $${dpVol.toFixed(1)}M` : ''});
     if (uw.tide_signal)     summaries.push({icon:'🌊', title:'Market Tide',    text: uw.tide_signal,     extra: ''});
     const cgText = uw.congress_summary || (cgBuys + cgSells > 0 ? `🏛️ ${cgBuys} compras / ${cgSells} ventas congresistas (60d)` : '');
+    if (uw.oi_summary) summaries.push({icon:'🎯', title:'OI / Max Pain', text: uw.oi_summary, extra: oiRatio >= 1.5 ? 'Alcista' : oiRatio <= 0.67 ? 'Bajista' : 'Neutro'});
     if (cgText) summaries.push({icon:'🏛️', title:'Congresistas', text: cgText, extra: `${cgBuys} compras · ${cgSells} ventas`});
 
     const sgEl = document.getElementById('uwSummaryGrid');

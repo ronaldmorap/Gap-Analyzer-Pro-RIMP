@@ -1333,62 +1333,144 @@ def get_uw_market_tide():
         _cache_set(cache_key, empty); return empty
 
 
-def get_uw_flow_alerts(ticker):
-    """Flow alerts con campos reales: total_premium, alert_rule, strike, expiry."""
-    cache_key = f'uw_alerts_{ticker}'
+def get_uw_open_interest(ticker):
+    """
+    Open Interest por strike — detecta Max Pain y niveles de concentración institucional.
+    El precio tiende a moverse hacia el strike con mayor OI (efecto max pain).
+    Usa el endpoint de options chain que incluye OI por strike/expiry.
+    """
+    cache_key = f'uw_oi_{ticker}'
     cached = _cache_get(cache_key)
     if cached is not None:
         return cached
 
-    empty = {'alert_score': 0, 'alert_signals': [], 'alert_count': 0}
+    empty = {'oi_score': 0, 'oi_signals': [], 'oi_summary': '',
+             'max_pain': 0, 'call_oi': 0, 'put_oi': 0, 'oi_ratio': 1.0}
 
-    data = _uw_get("/api/option-trades/flow-alerts", params={
-        'ticker_symbol': ticker, 'limit': 20
-    })
+    # UW expiry dates endpoint for nearest expiry
+    data = _uw_get(f"/api/stock/{ticker}/option-contracts/expirations")
+    if not data:
+        # Try alternative OI endpoint
+        data = _uw_get(f"/api/stock/{ticker}/oi-change")
+
     if not data:
         _cache_set(cache_key, empty); return empty
 
-    alerts = data.get('data', [])
-    score = 0; signals = []
+    try:
+        # Get nearest expiry
+        expirations = data.get('data', [])
+        if not expirations:
+            _cache_set(cache_key, empty); return empty
 
-    for a in alerts[:15]:
-        try:
-            total_prem  = float(a.get('total_premium') or 0)
-            strike      = float(a.get('strike') or 0)
-            underlying  = float(a.get('underlying_price') or 0)
-            alert_rule  = (a.get('alert_rule') or '').upper()
-            expiry      = a.get('expiry') or ''
-
-            if total_prem < 30000:
+        # Sort and take nearest weekly expiry
+        from datetime import datetime as _dt
+        today = _dt.utcnow()
+        nearest = None
+        for exp in expirations[:5]:
+            exp_str = exp if isinstance(exp, str) else exp.get('expiration') or exp.get('date') or ''
+            try:
+                exp_date = _dt.strptime(exp_str[:10], '%Y-%m-%d')
+                if exp_date >= today:
+                    nearest = exp_str[:10]
+                    break
+            except Exception:
                 continue
 
-            # Dirección por strike vs underlying
-            if strike > 0 and underlying > 0:
-                is_call = strike >= underlying * 0.98
-                if strike > underlying * 1.005:   is_call = True
-                elif strike < underlying * 0.995: is_call = False
-            else:
-                is_call = True  # default alcista si no hay datos
+        if not nearest:
+            _cache_set(cache_key, empty); return empty
 
-            pts = 2.0 if is_call else -2.0
-            if 'SWEEP' in alert_rule: pts *= 1.3
-            if 'REPEATED' in alert_rule: pts *= 1.2
+        # Get OI by strike for nearest expiry
+        oi_data = _uw_get(f"/api/stock/{ticker}/option-contracts/{nearest}/strikes")
+        if not oi_data:
+            oi_data = _uw_get(f"/api/stock/{ticker}/options/oi", params={'expiry': nearest})
 
-            score += pts
-            emoji = '🚀' if pts >= 2 else '🟢' if pts > 0 else '🔻' if pts <= -2 else '🔴'
-            prem_k = f"${total_prem/1000:.0f}K"
-            signals.append({
-                'signal': f'{emoji} ALERT {"CALL" if is_call else "PUT"} · {alert_rule}',
-                'detail': f'{ticker} · {prem_k} · Strike ${strike} · {expiry}',
-                'points': round(pts, 1), 'bullish': is_call
-            })
+        if not oi_data:
+            _cache_set(cache_key, empty); return empty
 
-        except Exception:
-            continue
+        strikes = oi_data.get('data', [])
+        if not strikes:
+            _cache_set(cache_key, empty); return empty
 
-    result = {'alert_score': round(score, 1), 'alert_signals': signals[:6],
-              'alert_count': len(signals)}
-    _cache_set(cache_key, result); return result
+        # Calculate max pain and OI concentration
+        strike_oi = {}  # strike -> {call_oi, put_oi}
+        total_call_oi = 0; total_put_oi = 0
+
+        for s in strikes:
+            strike_val = float(s.get('strike') or s.get('strike_price') or 0)
+            c_oi = int(s.get('call_oi') or s.get('calls_oi') or 0)
+            p_oi = int(s.get('put_oi') or s.get('puts_oi') or 0)
+            if strike_val > 0:
+                strike_oi[strike_val] = {'call': c_oi, 'put': p_oi}
+                total_call_oi += c_oi
+                total_put_oi  += p_oi
+
+        if not strike_oi:
+            _cache_set(cache_key, empty); return empty
+
+        # Max Pain = strike where total options value is minimized (most options expire worthless)
+        # Simplified: strike with highest total OI (call+put)
+        max_pain_strike = max(strike_oi, key=lambda k: strike_oi[k]['call'] + strike_oi[k]['put'])
+        max_pain_oi     = strike_oi[max_pain_strike]
+
+        # Get current price from flow data for comparison
+        flow_raw = _uw_get(f"/api/stock/{ticker}/flow-recent")
+        current_price = 0
+        if flow_raw and flow_raw.get('data'):
+            try:
+                current_price = float(flow_raw['data'][0].get('underlying_price') or 0)
+            except Exception:
+                pass
+
+        score = 0; signals = []
+        oi_ratio = (total_call_oi / total_put_oi) if total_put_oi > 0 else 1.0
+
+        # Signal 1: OI ratio (call/put OI)
+        if oi_ratio >= 1.5:
+            score += 1.2
+            signals.append({'signal': f'🎯 OI alcista — {oi_ratio:.1f}x más CALLs que PUTs abiertos',
+                           'detail': f'{total_call_oi:,} call OI vs {total_put_oi:,} put OI · expiry {nearest}',
+                           'points': 1.2, 'bullish': True})
+        elif oi_ratio <= 0.67:
+            score -= 1.2
+            signals.append({'signal': f'🎯 OI bajista — {1/oi_ratio:.1f}x más PUTs que CALLs abiertos',
+                           'detail': f'{total_put_oi:,} put OI vs {total_call_oi:,} call OI · expiry {nearest}',
+                           'points': -1.2, 'bullish': False})
+
+        # Signal 2: Max Pain vs current price
+        if current_price > 0:
+            diff_pct = ((max_pain_strike - current_price) / current_price) * 100
+            if abs(diff_pct) >= 0.5:
+                direction = 'bajista' if diff_pct < 0 else 'alcista'
+                pts = 0.8 if diff_pct > 0 else -0.8
+                score += pts
+                signals.append({
+                    'signal': f'🧲 Max Pain ${max_pain_strike:.0f} — precio tiende {direction}',
+                    'detail': f'Precio actual ${current_price:.2f} → Max Pain {diff_pct:+.1f}% · {max_pain_oi["call"]+max_pain_oi["put"]:,} OI concentrado',
+                    'points': pts, 'bullish': pts > 0
+                })
+
+        # Summary
+        if oi_ratio >= 1.5:
+            summary = f'🎯 OI alcista ({oi_ratio:.1f}x calls) · Max Pain ${max_pain_strike:.0f} · expiry {nearest}'
+        elif oi_ratio <= 0.67:
+            summary = f'🎯 OI bajista ({1/oi_ratio:.1f}x puts) · Max Pain ${max_pain_strike:.0f} · expiry {nearest}'
+        else:
+            summary = f'🎯 OI neutro ({oi_ratio:.1f} ratio) · Max Pain ${max_pain_strike:.0f} · expiry {nearest}'
+
+        result = {
+            'oi_score':   round(score, 1),
+            'oi_signals': signals,
+            'oi_summary': summary,
+            'max_pain':   max_pain_strike,
+            'call_oi':    total_call_oi,
+            'put_oi':     total_put_oi,
+            'oi_ratio':   round(oi_ratio, 2),
+            'oi_expiry':  nearest
+        }
+        _cache_set(cache_key, result); return result
+
+    except Exception as e:
+        _cache_set(cache_key, empty); return empty
 
 
 def get_uw_congress(ticker):
@@ -1478,36 +1560,37 @@ def get_uw_congress(ticker):
 
 
 def get_unusual_whales_data(ticker):
-    """Combina todos los módulos UW en paralelo con campos reales corregidos."""
+    """Combina todos los módulos UW en paralelo — sin duplicados, con OI/Max Pain."""
     cache_key = f'uw_combined_{ticker}'
     cached = _cache_get(cache_key)
     if cached is not None:
         return cached
 
     with ThreadPoolExecutor(max_workers=5) as ex:
-        f_flow     = ex.submit(get_uw_options_flow, ticker)
-        f_dp       = ex.submit(get_uw_darkpool,     ticker)
+        f_flow     = ex.submit(get_uw_options_flow,     ticker)
+        f_dp       = ex.submit(get_uw_darkpool,         ticker)
         f_tide     = ex.submit(get_uw_market_tide)
-        f_alerts   = ex.submit(get_uw_flow_alerts,  ticker)
-        f_congress = ex.submit(get_uw_congress,     ticker)
+        f_oi       = ex.submit(get_uw_open_interest,    ticker)
+        f_congress = ex.submit(get_uw_congress,         ticker)
 
     flow_data     = f_flow.result()
     dp_data       = f_dp.result()
     tide_data     = f_tide.result()
-    alert_data    = f_alerts.result()
+    oi_data       = f_oi.result()
     congress_data = f_congress.result()
 
+    # Weights: flow (1.5) + dp (1.3) + oi (1.2) + tide (0.8) + congress (0.5)
     total_score = (
-        alert_data.get('alert_score', 0)       * 2.0 +
         flow_data.get('uw_flow_score', 0)      * 1.5 +
         dp_data.get('dp_score', 0)             * 1.3 +
+        oi_data.get('oi_score', 0)             * 1.2 +
         tide_data.get('tide_score', 0)         * 0.8 +
         congress_data.get('congress_score', 0) * 0.5
     )
 
     all_signals = (
-        alert_data.get('alert_signals', []) +
         flow_data.get('uw_flow_signals', []) +
+        oi_data.get('oi_signals', []) +
         dp_data.get('dp_signals', []) +
         congress_data.get('congress_signals', [])
     )
@@ -1519,6 +1602,7 @@ def get_unusual_whales_data(ticker):
         'flow_summary':      flow_data.get('uw_flow_summary', ''),
         'dp_summary':        dp_data.get('dp_summary', ''),
         'tide_signal':       tide_data.get('tide_signal', ''),
+        'oi_summary':        oi_data.get('oi_summary', ''),
         'congress_summary':  congress_data.get('congress_summary', ''),
         'call_premium_k':    flow_data.get('call_premium', 0),
         'put_premium_k':     flow_data.get('put_premium', 0),
@@ -1529,7 +1613,11 @@ def get_unusual_whales_data(ticker):
         'tide_bullish':      tide_data.get('tide_bullish'),
         'tide_call_pct':     tide_data.get('call_pct', 50),
         'tide_net_premium':  tide_data.get('net_premium', 0),
-        'alert_count':       alert_data.get('alert_count', 0),
+        'max_pain':          oi_data.get('max_pain', 0),
+        'oi_ratio':          oi_data.get('oi_ratio', 1.0),
+        'call_oi':           oi_data.get('call_oi', 0),
+        'put_oi':            oi_data.get('put_oi', 0),
+        'oi_expiry':         oi_data.get('oi_expiry', ''),
         'congress_buys':     congress_data.get('congress_buys', 0),
         'congress_sells':    congress_data.get('congress_sells', 0),
     }
