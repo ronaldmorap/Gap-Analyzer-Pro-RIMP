@@ -11,6 +11,31 @@ from email.utils import parsedate_to_datetime
 import threading
 import time
 
+# ── UNUSUAL WHALES CONFIG ────────────────────────────────────────
+# IMPORTANTE: Pon tu nueva API key de UW aquí o en variable de entorno UW_API_KEY
+# Ve a unusualwhales.com → Settings → API → Regenerate key (la anterior quedó expuesta)
+UW_API_KEY = os.environ.get("UW_API_KEY", "REEMPLAZA_CON_TU_NUEVA_KEY")
+UW_BASE    = "https://api.unusualwhales.com"
+
+def _uw_headers():
+    return {"Authorization": f"Bearer {UW_API_KEY}", "Accept": "application/json"}
+
+def _uw_get(endpoint, params=None, timeout=8):
+    """Helper GET para UW API."""
+    try:
+        r = requests.get(
+            f"{UW_BASE}{endpoint}",
+            headers=_uw_headers(),
+            params=params or {},
+            timeout=timeout
+        )
+        if r.status_code == 200:
+            return r.json()
+        return None
+    except Exception:
+        return None
+
+
 app = Flask(__name__)
 
 # ── CACHÉ EN MEMORIA CON TTL DIFERENCIADO ────────────────────────
@@ -28,6 +53,13 @@ CACHE_TTL_MAP = {
     'sec_':          3600, # SEC Form 4: 1h — solo 2 veces al mes
     'hist_':         3600, # histórico: 1h — no cambia en el día
     'earnings':      3600, # earnings: 1h
+    'uw_combined':   90,   # UW combined: 90s — tiempo real
+    'uw_flow':       60,   # UW opciones flow: 60s
+    'uw_dp':         60,   # UW dark pool: 60s (15min delay por normativa)
+    'uw_tide':       60,   # UW market tide: 60s
+    'uw_alerts':     60,   # UW flow alerts: 60s
+    'uw_news':       120,  # UW noticias: 2min
+    'uw_congress':   3600, # UW congresistas: 1h (cambia poco)
     'default':       90    # resto: 90s
 }
 
@@ -1028,6 +1060,441 @@ def get_technical_score(ticker):
         return 0
 
 
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  UNUSUAL WHALES — MÓDULO INSTITUCIONAL COMPLETO
+# ═══════════════════════════════════════════════════════════════════
+
+def get_uw_options_flow(ticker):
+    """Flujo de opciones institucional: sweeps, blocks, splits."""
+    cache_key = f'uw_flow_{ticker}'
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached
+
+    empty = {'uw_flow_score': 0, 'uw_flow_signals': [], 'uw_flow_summary': 'Sin datos UW',
+             'call_premium': 0, 'put_premium': 0}
+
+    data = _uw_get(f"/api/stock/{ticker}/flow-recent")
+    if not data:
+        _cache_set(cache_key, empty); return empty
+
+    trades = data.get('data', [])
+    if not trades:
+        _cache_set(cache_key, empty); return empty
+
+    score = 0; signals = []; call_premium = 0; put_premium = 0
+
+    for t in trades[:30]:
+        try:
+            opt_type  = (t.get('type') or t.get('option_type') or '').upper()
+            side      = (t.get('side') or t.get('aggressor_ind') or '').upper()
+            premium   = float(t.get('total_premium') or t.get('premium') or 0)
+            is_sweep  = 'SWEEP' in str(t.get('execution_type') or t.get('trade_type') or '').upper()
+            vol       = int(t.get('volume') or 0)
+            oi        = int(t.get('open_interest') or 1)
+            is_opening = vol > oi
+
+            if opt_type == 'CALL':   call_premium += premium
+            elif opt_type == 'PUT':  put_premium  += premium
+
+            if premium < 50000:
+                continue
+
+            pts = 0; label_parts = []
+            if opt_type == 'CALL':
+                pts += 1; label_parts.append('📈 CALL')
+            elif opt_type == 'PUT':
+                pts -= 1; label_parts.append('📉 PUT')
+
+            if is_sweep:
+                pts *= 1.5; label_parts.append('⚡SWEEP')
+            if side in ('A', 'ASK', 'BUY'):
+                pts += 0.5; label_parts.append('ASK')
+            elif side in ('B', 'BID', 'SELL'):
+                pts -= 0.3
+            if is_opening:
+                label_parts.append('NEW'); pts *= 1.2
+
+            score += pts
+            premium_k = f"${premium/1000:.0f}K"
+            signals.append({
+                'signal': ' '.join(label_parts),
+                'detail': f"{ticker} {' '.join(label_parts)} · {premium_k} premium",
+                'points': round(pts, 1), 'bullish': opt_type == 'CALL'
+            })
+        except Exception:
+            continue
+
+    total_prem = call_premium + put_premium
+    if total_prem > 0:
+        cr = call_premium / total_prem
+        if cr >= 0.7:   summary = f'🐋 Flujo masivo ALCISTA — {cr*100:.0f}% premium en CALLs'
+        elif cr <= 0.3: summary = f'🐋 Flujo masivo BAJISTA — {(1-cr)*100:.0f}% premium en PUTs'
+        else:           summary = f'⚪ Flujo mixto — CALLs {cr*100:.0f}% vs PUTs {(1-cr)*100:.0f}%'
+    else:
+        summary = 'Sin flujo significativo'
+
+    result = {'uw_flow_score': round(score, 1), 'uw_flow_signals': signals[:8],
+              'uw_flow_summary': summary, 'call_premium': round(call_premium/1000, 0),
+              'put_premium': round(put_premium/1000, 0)}
+    _cache_set(cache_key, result); return result
+
+
+def get_uw_darkpool(ticker):
+    """Dark pool prints institucionales — 15min delay por normativa."""
+    cache_key = f'uw_dp_{ticker}'
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached
+
+    empty = {'dp_score': 0, 'dp_signals': [], 'dp_summary': 'Sin datos dark pool', 'dp_volume': 0}
+
+    data = _uw_get(f"/api/darkpool/{ticker}")
+    if not data:
+        _cache_set(cache_key, empty); return empty
+
+    prints = data.get('data', [])
+    if not prints:
+        _cache_set(cache_key, empty); return empty
+
+    score = 0; signals = []; total_buy_vol = 0; total_sell_vol = 0; total_notional = 0
+
+    for p in prints[:20]:
+        try:
+            price    = float(p.get('price') or 0)
+            size     = int(p.get('size') or 0)
+            bid      = float(p.get('bid') or price * 0.999)
+            ask      = float(p.get('ask') or price * 1.001)
+            notional = price * size
+
+            if notional < 500000:
+                continue
+            total_notional += notional
+            ask_pct = (price - bid) / (ask - bid) if (ask - bid) > 0 else 0.5
+
+            if ask_pct >= 0.7:
+                pts = 1.0; total_buy_vol += size; sentiment = '🟢 Compra'
+            elif ask_pct <= 0.3:
+                pts = -1.0; total_sell_vol += size; sentiment = '🔴 Venta'
+            else:
+                pts = 0; sentiment = '⚪ Neutro'
+
+            score += pts
+            notional_str = f"${notional/1_000_000:.1f}M" if notional >= 1_000_000 else f"${notional/1000:.0f}K"
+            signals.append({
+                'signal': f'🏊 Dark Pool {sentiment}',
+                'detail': f'{ticker} · {notional_str} · {size:,} acciones @ ${price:.2f}',
+                'points': pts, 'bullish': pts > 0
+            })
+        except Exception:
+            continue
+
+    total_vol = total_buy_vol + total_sell_vol
+    if total_vol > 0:
+        br = total_buy_vol / total_vol
+        ns = f"${total_notional/1_000_000:.1f}M"
+        if br >= 0.65:   summary = f'🟢 Dark pool alcista — {br*100:.0f}% comprador ({ns})'
+        elif br <= 0.35: summary = f'🔴 Dark pool bajista — {(1-br)*100:.0f}% vendedor ({ns})'
+        else:            summary = f'⚪ Dark pool neutro ({ns} total)'
+    else:
+        summary = 'Sin actividad significativa en dark pool'
+
+    result = {'dp_score': round(score, 1), 'dp_signals': signals[:6],
+              'dp_summary': summary, 'dp_volume': round(total_notional/1_000_000, 1)}
+    _cache_set(cache_key, result); return result
+
+
+def get_uw_market_tide():
+    """Market Tide: sentimiento global call vs put del mercado entero."""
+    cache_key = 'uw_tide'
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached
+
+    empty = {'tide_score': 0, 'tide_signal': '⚪ Sin datos Market Tide',
+             'tide_bullish': None, 'call_pct': 50}
+
+    data = _uw_get("/api/market/market-tide")
+    if not data:
+        _cache_set(cache_key, empty); return empty
+
+    try:
+        d = data.get('data') or data
+        if isinstance(d, list) and len(d) > 0:
+            d = d[-1]
+        call_prem = float(d.get('call_premium') or d.get('calls_premium') or 0)
+        put_prem  = float(d.get('put_premium')  or d.get('puts_premium')  or 0)
+
+        if call_prem == 0 and put_prem == 0:
+            _cache_set(cache_key, empty); return empty
+
+        total = call_prem + put_prem
+        call_pct = (call_prem / total * 100) if total > 0 else 50
+
+        if call_pct >= 60:
+            score = 1; bullish = True
+            signal = f'🌊 Market Tide ALCISTA — {call_pct:.0f}% premium en CALLs'
+        elif call_pct <= 40:
+            score = -1; bullish = False
+            signal = f'🌊 Market Tide BAJISTA — {100-call_pct:.0f}% premium en PUTs'
+        else:
+            score = 0; bullish = None
+            signal = f'🌊 Market Tide NEUTRO — {call_pct:.0f}% CALLs vs {100-call_pct:.0f}% PUTs'
+
+        result = {'tide_score': score, 'tide_signal': signal,
+                  'tide_bullish': bullish, 'call_pct': round(call_pct, 1)}
+        _cache_set(cache_key, result); return result
+    except Exception:
+        _cache_set(cache_key, empty); return empty
+
+
+def get_uw_flow_alerts(ticker):
+    """Flow alerts pre-filtradas por UW — los trades MÁS inusuales."""
+    cache_key = f'uw_alerts_{ticker}'
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached
+
+    empty = {'alert_score': 0, 'alert_signals': []}
+
+    data = _uw_get("/api/option-trades/flow-alerts", params={
+        'ticker_symbol': ticker, 'min_premium': 50000, 'limit': 20
+    })
+    if not data:
+        _cache_set(cache_key, empty); return empty
+
+    alerts = data.get('data', [])
+    score = 0; signals = []
+
+    for a in alerts[:10]:
+        try:
+            opt_type  = (a.get('type') or '').upper()
+            side      = (a.get('side') or a.get('aggressor_ind') or '').upper()
+            premium   = float(a.get('total_premium') or a.get('premium') or 0)
+            alert_tag = (a.get('alert_tag') or a.get('tag') or '').upper()
+
+            pts = 0
+            if opt_type == 'CALL' and side in ('A', 'ASK', 'BUY'):   pts =  2.0
+            elif opt_type == 'CALL':                                   pts =  1.0
+            elif opt_type == 'PUT' and side in ('A', 'ASK', 'BUY'):  pts = -2.0
+            elif opt_type == 'PUT':                                    pts = -1.0
+            if 'SWEEP' in alert_tag: pts *= 1.3
+
+            score += pts
+            prem_k = f"${premium/1000:.0f}K"
+            emoji  = '🚀' if pts >= 2 else '🟢' if pts > 0 else '🔻' if pts <= -2 else '🔴'
+            signals.append({
+                'signal': f'{emoji} UW ALERT {opt_type}',
+                'detail': f'{ticker} ALERT {opt_type} · {prem_k} · {alert_tag}',
+                'points': round(pts, 1), 'bullish': pts > 0
+            })
+        except Exception:
+            continue
+
+    result = {'alert_score': round(score, 1), 'alert_signals': signals[:6]}
+    _cache_set(cache_key, result); return result
+
+
+def get_uw_news(ticker):
+    """Noticias UW: latencia 2-5min vs 30-60min del RSS."""
+    cache_key = f'uw_news_{ticker}'
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached
+
+    empty = {'uw_news_score': 0, 'uw_news_signals': []}
+
+    data = _uw_get(f"/api/news/{ticker}")
+    if not data:
+        _cache_set(cache_key, empty); return empty
+
+    news_list = data.get('data', [])
+    score = 0; signals = []; seen = set()
+
+    def _classify_uw(title):
+        tl = title.lower()
+        if any(w in tl for w in ['upgrade','outperform','overweight','strong buy','raises price target','initiates']):
+            return 1.5
+        if any(w in tl for w in ['downgrade','underperform','underweight','cuts price target','lowers guidance']):
+            return -1.5
+        if any(w in tl for w in ['hindenburg','short seller','fraud','citron','muddy waters']):
+            return -3.0
+        if any(w in tl for w in ['beats','beat estimates','record revenue','strong results','revenue beat']):
+            return 2.0
+        if any(w in tl for w in ['misses','miss estimates','disappoints','weak results','cuts guidance']):
+            return -2.0
+        if any(w in tl for w in ['partnership','contract','acquisition','buyback','fda approval','deal']):
+            return 1.0
+        if any(w in tl for w in ['lawsuit','investigation','fine','recall','layoffs','penalty','probe']):
+            return -1.0
+        return 0
+
+    for n in news_list[:20]:
+        try:
+            title     = (n.get('title') or n.get('headline') or '').strip()
+            published = n.get('published_at') or n.get('created_at') or ''
+            sentiment_uw = (n.get('sentiment') or '').lower()
+            if not title or title in seen:
+                continue
+            seen.add(title)
+
+            h = 999
+            try:
+                from datetime import timezone
+                dt_pub  = datetime.fromisoformat(published.replace('Z', '+00:00'))
+                now_utc = datetime.now(timezone.utc)
+                h = (now_utc - dt_pub).total_seconds() / 3600
+            except Exception:
+                pass
+
+            if h > 48:
+                continue
+
+            w = 1.0 if h <= 2 else 0.8 if h <= 6 else 0.5 if h <= 12 else 0.3 if h <= 24 else 0.1
+
+            # Usar sentimiento de UW si disponible, sino clasificar
+            if sentiment_uw in ('bullish', 'positive'):
+                base_pts = 1.5
+            elif sentiment_uw in ('bearish', 'negative'):
+                base_pts = -1.5
+            else:
+                base_pts = _classify_uw(title)
+
+            pts = round(base_pts * w, 1)
+            score += pts
+
+            age_str = f'hace {int(h)}h' if h < 24 else f'hace {int(h/24)}d'
+            emoji = '🟢' if pts > 0 else '🔴' if pts < 0 else '⚪'
+            signals.append({
+                'signal':  f'{emoji} UW News',
+                'detail':  f'{title[:75]} · {age_str} [UW]',
+                'points':  pts, 'bullish': pts > 0
+            })
+        except Exception:
+            continue
+
+    result = {'uw_news_score': round(score, 1), 'uw_news_signals': signals[:8]}
+    _cache_set(cache_key, result); return result
+
+
+def get_uw_congress(ticker):
+    """Trades de congresistas — timing casi perfecto históricamente."""
+    cache_key = f'uw_congress_{ticker}'
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached
+
+    empty = {'congress_score': 0, 'congress_signals': [], 'congress_summary': ''}
+
+    data = _uw_get("/api/congress/recent-trades", params={'ticker': ticker, 'limit': 20})
+    if not data:
+        _cache_set(cache_key, empty); return empty
+
+    trades_list = data.get('data', [])
+    score = 0; signals = []; buys = 0; sells = 0
+
+    for t in trades_list[:10]:
+        try:
+            trade_type = (t.get('type') or t.get('transaction_type') or '').lower()
+            politician = t.get('politician') or t.get('representative') or 'Político'
+            amount     = t.get('amount') or t.get('amount_range') or ''
+            filed_at   = t.get('filed_at') or t.get('transaction_date') or ''
+
+            days_ago = 999
+            try:
+                if filed_at:
+                    dt_f = datetime.fromisoformat(filed_at[:10])
+                    days_ago = (datetime.utcnow() - dt_f).days
+            except Exception:
+                pass
+
+            if days_ago > 30:
+                continue
+
+            rw = 1.0 if days_ago <= 7 else 0.6 if days_ago <= 14 else 0.3
+
+            if 'buy' in trade_type or 'purchase' in trade_type:
+                pts = 1.5 * rw; buys += 1; emoji = '🏛️🟢'
+            elif 'sell' in trade_type or 'sale' in trade_type:
+                pts = -1.0 * rw; sells += 1; emoji = '🏛️🔴'
+            else:
+                continue
+
+            score += pts
+            signals.append({
+                'signal': f'{emoji} Congresista',
+                'detail': f'{politician} {trade_type.upper()} {ticker} · {amount} · hace {days_ago}d',
+                'points': round(pts, 1), 'bullish': pts > 0
+            })
+        except Exception:
+            continue
+
+    summary = f'🏛️ {buys} compras / {sells} ventas congresistas (30d)' if (buys + sells) > 0 else ''
+
+    result = {'congress_score': round(score, 1), 'congress_signals': signals[:5],
+              'congress_summary': summary}
+    _cache_set(cache_key, result); return result
+
+
+def get_unusual_whales_data(ticker):
+    """Combina todos los módulos UW en paralelo."""
+    cache_key = f'uw_combined_{ticker}'
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached
+
+    with ThreadPoolExecutor(max_workers=6) as ex:
+        f_flow     = ex.submit(get_uw_options_flow, ticker)
+        f_dp       = ex.submit(get_uw_darkpool,     ticker)
+        f_tide     = ex.submit(get_uw_market_tide)
+        f_alerts   = ex.submit(get_uw_flow_alerts,  ticker)
+        f_news     = ex.submit(get_uw_news,         ticker)
+        f_congress = ex.submit(get_uw_congress,     ticker)
+
+    flow_data     = f_flow.result()
+    dp_data       = f_dp.result()
+    tide_data     = f_tide.result()
+    alert_data    = f_alerts.result()
+    news_data     = f_news.result()
+    congress_data = f_congress.result()
+
+    # Score total ponderado — flow alerts tienen peso máximo (son los más fiables)
+    total_score = (
+        alert_data.get('alert_score', 0)       * 2.0 +
+        flow_data.get('uw_flow_score', 0)      * 1.5 +
+        dp_data.get('dp_score', 0)             * 1.3 +
+        tide_data.get('tide_score', 0)         * 0.8 +
+        news_data.get('uw_news_score', 0)      * 1.0 +
+        congress_data.get('congress_score', 0) * 0.5
+    )
+
+    all_signals = (
+        alert_data.get('alert_signals', []) +
+        flow_data.get('uw_flow_signals', []) +
+        dp_data.get('dp_signals', []) +
+        news_data.get('uw_news_signals', []) +
+        congress_data.get('congress_signals', [])
+    )
+    all_signals.sort(key=lambda x: -abs(x.get('points', 0)))
+
+    result = {
+        'uw_total_score':   round(total_score, 1),
+        'uw_all_signals':   all_signals[:12],
+        'flow_summary':     flow_data.get('uw_flow_summary', ''),
+        'dp_summary':       dp_data.get('dp_summary', ''),
+        'tide_signal':      tide_data.get('tide_signal', ''),
+        'congress_summary': congress_data.get('congress_summary', ''),
+        'call_premium_k':   flow_data.get('call_premium', 0),
+        'put_premium_k':    flow_data.get('put_premium', 0),
+        'dp_volume_m':      dp_data.get('dp_volume', 0),
+        'tide_bullish':     tide_data.get('tide_bullish'),
+        'tide_call_pct':    tide_data.get('call_pct', 50),
+    }
+    _cache_set(cache_key, result)
+    return result
+
 # ═══════════════════════════════════════════════════════════════════
 #  SEMÁFORO FTMO — el corazón de la app
 #  Verde: opera. Amarillo: cuidado. Rojo: NO operar hoy.
@@ -1040,7 +1507,7 @@ def get_ftmo_signal(probability, raw_direction, futures_warning,
                     vol_signal, rvol,
                     macro_title=None, macro_date=None, macro_time=None,
                     macro_sent=None, vol_pct=0,
-                    vix_level=15.0, is_monday=False):
+                    vix_level=15.0, is_monday=False, uw_data=None):
     """
     Semáforo FTMO con etiquetas específicas y descriptivas en cada señal.
     Verde: opera. Amarillo: reduce tamaño. Rojo: no operar.
@@ -1162,9 +1629,7 @@ def get_ftmo_signal(probability, raw_direction, futures_warning,
         else:
             contra.append(f'Actividad insider negativa (SEC Form 4) — contradice dirección alcista')
 
-    # ── 9. SEÑALES INSTITUCIONALES 24H (relativo a dirección) ─────
-    # whale_score positivo = upgrades/compras → confirma alcista, contradice bajista
-    # whale_score negativo = downgrades/short sellers → confirma bajista, contradice alcista
+    # ── 9. SEÑALES INSTITUCIONALES 24H RSS (relativo a dirección) ────
     if whale_score >= 2:
         if raw_direction == 'ALCISTA':
             favor.append(f'Upgrades / señales institucionales alcistas en 24h (+{whale_score}pts) — confirma dirección')
@@ -1175,6 +1640,71 @@ def get_ftmo_signal(probability, raw_direction, futures_warning,
             favor.append(f'Downgrades / short sellers en 24h ({whale_score}pts) — confirma dirección bajista')
         else:
             contra.append(f'Downgrades / short sellers en 24h ({whale_score}pts) — contradice dirección alcista')
+
+    # ── 9b. UNUSUAL WHALES — opciones flow, dark pool, market tide ──
+    uw = uw_data or {}
+    uw_score      = uw.get('uw_total_score', 0)
+    flow_summary  = uw.get('flow_summary', '')
+    dp_summary    = uw.get('dp_summary', '')
+    tide_signal   = uw.get('tide_signal', '')
+    congress_sum  = uw.get('congress_summary', '')
+    call_k        = uw.get('call_premium_k', 0)
+    put_k         = uw.get('put_premium_k', 0)
+    dp_vol        = uw.get('dp_volume_m', 0)
+    tide_bullish  = uw.get('tide_bullish')
+    tide_call_pct = uw.get('tide_call_pct', 50)
+
+    # Flujo de opciones (la señal más importante de UW)
+    if call_k > 0 or put_k > 0:
+        if call_k > put_k * 1.5:
+            if raw_direction == 'ALCISTA':
+                favor.append(f'🐋 Opciones flow: ${call_k:.0f}K CALLs vs ${put_k:.0f}K PUTs — ballenas apostando al alza')
+            else:
+                contra.append(f'🐋 Opciones flow: ${call_k:.0f}K CALLs vs ${put_k:.0f}K PUTs — ballenas contradicen dirección bajista')
+        elif put_k > call_k * 1.5:
+            if raw_direction == 'BAJISTA':
+                favor.append(f'🐋 Opciones flow: ${put_k:.0f}K PUTs vs ${call_k:.0f}K CALLs — ballenas apostando a la baja')
+            else:
+                contra.append(f'🐋 Opciones flow: ${put_k:.0f}K PUTs vs ${call_k:.0f}K CALLs — ballenas contradicen dirección alcista')
+
+    # Dark pool
+    if dp_vol > 0:
+        dp_score_uw = uw.get('dp_score', 0) if 'dp_score' in uw else 0
+        if dp_score_uw >= 2:
+            if raw_direction == 'ALCISTA':
+                favor.append(f'🏊 Dark pool alcista — ${dp_vol:.1f}M en transacciones institucionales off-exchange')
+            else:
+                contra.append(f'🏊 Dark pool alcista — ${dp_vol:.1f}M contradice dirección bajista')
+        elif dp_score_uw <= -2:
+            if raw_direction == 'BAJISTA':
+                favor.append(f'🏊 Dark pool bajista — ${dp_vol:.1f}M en ventas institucionales off-exchange')
+            else:
+                contra.append(f'🏊 Dark pool bajista — ${dp_vol:.1f}M contradice dirección alcista')
+
+    # Market Tide — sentimiento global del mercado
+    if tide_bullish is True:
+        if raw_direction == 'ALCISTA':
+            favor.append(f'🌊 {tide_signal} — mercado global confirma dirección alcista')
+        else:
+            contra.append(f'🌊 {tide_signal} — mercado global contradice dirección bajista')
+    elif tide_bullish is False:
+        if raw_direction == 'BAJISTA':
+            favor.append(f'🌊 {tide_signal} — mercado global confirma dirección bajista')
+        else:
+            contra.append(f'🌊 {tide_signal} — mercado global contradice dirección alcista')
+
+    # Congresistas
+    if congress_sum:
+        if uw.get('congress_score', 0) >= 1.5:
+            if raw_direction == 'ALCISTA':
+                favor.append(f'🏛️ {congress_sum} — señal alcista con historial de timing perfecto')
+            else:
+                contra.append(f'🏛️ {congress_sum} — congresistas alcistas contradicen dirección bajista')
+        elif uw.get('congress_score', 0) <= -1.0:
+            if raw_direction == 'BAJISTA':
+                favor.append(f'🏛️ {congress_sum} — congresistas vendiendo, confirma bajista')
+            else:
+                contra.append(f'🏛️ {congress_sum} — congresistas vendiendo, contradice alcista')
 
     # ── 10. EVENTO MACRO ──────────────────────────────────────────
     if macro_event:
@@ -1213,10 +1743,13 @@ def get_ftmo_signal(probability, raw_direction, futures_warning,
     macro_confirma = (macro_event and
                       ((macro_sent == 'positivo' and raw_direction == 'ALCISTA') or
                        (macro_sent == 'negativo' and raw_direction == 'BAJISTA')))
+    # UW bearish extremo = bloqueo adicional (mercado gritando bajista)
+    uw_extreme_bearish = uw_score <= -8 and raw_direction == 'ALCISTA'
     hard_block = (earnings_days <= 1 or
                   (macro_event and not macro_confirma) or
                   (futures_warning and is_fakeout) or
-                  vix_level >= 30)
+                  vix_level >= 30 or
+                  uw_extreme_bearish)
 
     if hard_block:
         color  = 'red'
@@ -1228,9 +1761,12 @@ def get_ftmo_signal(probability, raw_direction, futures_warning,
         titulo = '🟡 CUIDADO — Señal con poca fuerza'
         desc   = f'Probabilidad {probability}% — por debajo del umbral mínimo. Si operas, tamaño mínimo.'
     elif n_favor >= 8 and n_contra == 0:
+        uw_confirms = (uw_data or {}).get('uw_total_score', 0) > 2
+        fuego = '🔥🔥' if uw_confirms else '🔥'
         color  = 'green'
-        titulo = f'🟢 SEÑAL FUERTE 🔥🔥 — Opera con tamaño completo'
-        desc   = f'{n_favor} señales a favor, {n_contra} en contra. Setup excepcional.'
+        titulo = f'🟢 SEÑAL FUERTE {fuego} — Opera con tamaño completo'
+        uw_suffix = ' — confirmado por ballenas institucionales' if uw_confirms else ''
+        desc   = f'{n_favor} señales a favor, {n_contra} en contra. Setup excepcional{uw_suffix}.'
     elif n_favor >= 6 and n_contra <= 1:
         color  = 'green'
         titulo = '🟢 SEÑAL CLARA — Opera'
@@ -1273,6 +1809,7 @@ def calculate_gap_probability(ticker):
                 ex.submit(check_high_impact_news, ticker):   'macro_flag',
                 ex.submit(get_sec_insider_activity, ticker): 'sec',
                 ex.submit(get_vix_level):                     'vix',
+                ex.submit(get_unusual_whales_data, ticker):   'uw',
             }
             results = {}
             for fut in as_completed(futs):
@@ -1294,6 +1831,12 @@ def calculate_gap_probability(ticker):
         macro_event, macro_reason, macro_date, macro_time, macro_sent = results.get('macro_flag') or (False, None, None, None, None)
         sec_data                             = results.get('sec') or {'score': 0, 'signals': [], 'summary': 'Sin datos SEC'}
         vix_level                            = results.get('vix') or 15.0
+        uw_data                              = results.get('uw') or {
+            'uw_total_score': 0, 'uw_all_signals': [], 'flow_summary': '',
+            'dp_summary': '', 'tide_signal': '', 'congress_summary': '',
+            'call_premium_k': 0, 'put_premium_k': 0, 'dp_volume_m': 0,
+            'tide_bullish': None, 'tide_call_pct': 50
+        }
 
         # ── Probabilidad ─────────────────────────────────────────
         # PRIMERA PASADA: calcular dirección base sin señales relativas
@@ -1323,6 +1866,14 @@ def calculate_gap_probability(ticker):
 
         final += whale_score * 4 * direction_mult
         final += sec_data['score'] * 3 * direction_mult
+        # UW institucional — el dato más potente del sistema
+        final += uw_data.get('uw_total_score', 0) * 3 * direction_mult
+        # Market Tide como filtro global (como VIX pero para opciones)
+        uw_tide_bullish = uw_data.get('tide_bullish')
+        if uw_tide_bullish is True  and raw_dir_base == 'ALCISTA': final += 5
+        if uw_tide_bullish is False and raw_dir_base == 'BAJISTA': final += 5
+        if uw_tide_bullish is True  and raw_dir_base == 'BAJISTA': final -= 5
+        if uw_tide_bullish is False and raw_dir_base == 'ALCISTA': final -= 5
 
 
         final     = max(15, min(85, final))
@@ -1359,7 +1910,8 @@ def calculate_gap_probability(ticker):
             rvol            = vol_data['rvol'],
             vol_pct         = vol_data.get('price_change_pct', 0),
             vix_level       = vix_level,
-            is_monday       = is_monday
+            is_monday       = is_monday,
+            uw_data         = uw_data
         )
 
         # Precio actual
@@ -1398,6 +1950,7 @@ def calculate_gap_probability(ticker):
             'macro_time':       macro_time,
             'macro_sent':       macro_sent,
             'vix_level':        vix_level,
+            'uw_data':          uw_data,
         }
 
     except Exception as e:
@@ -1418,6 +1971,9 @@ def calculate_gap_probability(ticker):
             'whale_signals': [], 'whale_score': 0,
             'sec': {'score': 0, 'signals': [], 'summary': 'Sin datos'},
             'macro_event': False, 'macro_reason': None, 'macro_date': None, 'macro_time': None, 'macro_sent': None,
+            'uw_data': {'uw_total_score': 0, 'uw_all_signals': [], 'flow_summary': '', 'dp_summary': '',
+                        'tide_signal': '', 'congress_summary': '', 'call_premium_k': 0, 'put_premium_k': 0,
+                        'dp_volume_m': 0, 'tide_bullish': None, 'tide_call_pct': 50},
         }
 
 
@@ -1437,8 +1993,10 @@ def analyze():
         keys_to_clear = [k for k in _cache if (
             ticker.lower() in k.lower() or
             k.startswith('vix') or
-            k.startswith('futures_')
-        ) and not k.startswith('sec_')]
+            k.startswith('futures_') or
+            k.startswith('uw_tide') or
+            k.startswith('uw_market')
+        ) and not k.startswith('sec_') and not k.startswith('uw_congress')]
         for k in keys_to_clear:
             _cache.pop(k, None)
     return jsonify(calculate_gap_probability(ticker))
@@ -1459,6 +2017,16 @@ def dashboard():
             except: raw[t] = {'ticker': t, 'probability': 50, 'raw_direction': 'NEUTRAL',
                               'ftmo_signal': {'color': 'red', 'titulo': 'Error', 'desc': '', 'favor': [], 'contra': []}}
     return jsonify([raw[t] for t in MARKET_LEADERS if t in raw])
+
+@app.route('/uw_status')
+def uw_status():
+    """Test endpoint — verifica que la API key de UW funciona."""
+    result = _uw_get("/api/market/market-tide")
+    if result:
+        return jsonify({'status': 'OK', 'uw_connected': True, 'sample': result})
+    return jsonify({'status': 'ERROR', 'uw_connected': False,
+                    'message': 'Verifica tu API key en UW_API_KEY o variable de entorno'})
+
 
 @app.route('/earnings_calendar')
 def earnings_calendar():

@@ -121,6 +121,36 @@
         .sig-item:last-child{border-bottom:none}
         .sig-pts-pos{color:var(--green);font-weight:700} .sig-pts-neg{color:var(--red);font-weight:700}
         .no-sig{font-size:12px;color:var(--muted);font-style:italic}
+        /* ── UNUSUAL WHALES — BLOQUE INSTITUCIONAL ── */
+        .uw-box{background:linear-gradient(135deg,#0f1623 0%,#1a2540 100%);border:1px solid #2d3f5e;
+            border-radius:var(--r);padding:22px 26px;margin-bottom:18px;color:#e2e8f0}
+        .uw-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px}
+        .uw-title{font-size:13px;font-weight:700;color:#7dd3fc;text-transform:uppercase;letter-spacing:1px}
+        .uw-badge{padding:3px 12px;border-radius:20px;font-size:10px;font-weight:700}
+        .uw-bull{background:rgba(16,185,129,.15);color:#34d399;border:1px solid rgba(16,185,129,.3)}
+        .uw-bear{background:rgba(239,68,68,.15);color:#f87171;border:1px solid rgba(239,68,68,.3)}
+        .uw-neu{background:rgba(107,114,128,.15);color:#9ca3af;border:1px solid rgba(107,114,128,.3)}
+        .uw-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px}
+        @media(max-width:700px){.uw-grid{grid-template-columns:1fr 1fr}}
+        @media(max-width:480px){.uw-grid{grid-template-columns:1fr}}
+        .uw-stat{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);
+            border-radius:8px;padding:12px;text-align:center}
+        .uw-stat-val{font-size:18px;font-weight:800;letter-spacing:-0.5px}
+        .uw-stat-lbl{font-size:9px;color:#64748b;text-transform:uppercase;letter-spacing:.8px;margin-top:3px;font-weight:600}
+        .uw-signals{display:flex;flex-direction:column;gap:5px}
+        .uw-sig-item{display:flex;justify-content:space-between;align-items:center;
+            background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);
+            border-radius:6px;padding:7px 12px;font-size:11px}
+        .uw-sig-detail{color:#94a3b8;font-size:10px;margin-top:1px}
+        .uw-pts-pos{color:#34d399;font-weight:700;font-size:12px}
+        .uw-pts-neg{color:#f87171;font-weight:700;font-size:12px}
+        .uw-summaries{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
+        @media(max-width:600px){.uw-summaries{grid-template-columns:1fr}}
+        .uw-sum{background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);
+            border-radius:6px;padding:9px 12px;font-size:11px;color:#cbd5e1}
+        .uw-sum-lbl{font-size:9px;color:#475569;text-transform:uppercase;letter-spacing:.8px;font-weight:600;margin-bottom:4px}
+        .uw-no-data{text-align:center;color:#475569;font-size:12px;font-style:italic;padding:16px}
+
 
         /* REGISTER BUTTONS */
         .reg-row{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px}
@@ -306,12 +336,27 @@
                     <div id="secSignals"></div>
                 </div>
                 <div class="sig-box">
-                    <h3>🐋 Señales institucionales (últimas 24h)</h3>
+                    <h3>🐋 Señales institucionales RSS (últimas 48h)</h3>
                     <div id="whaleSignals"></div>
                 </div>
             </div>
 
-
+            <!-- UNUSUAL WHALES — Flujo Institucional Real -->
+            <div class="uw-box" id="uwBox" style="display:none">
+                <div class="uw-header">
+                    <div class="uw-title">🐋 Unusual Whales — Flujo Institucional Real</div>
+                    <span class="uw-badge uw-neu" id="uwBadge">Cargando...</span>
+                </div>
+                <!-- Stats row: call premium, put premium, dark pool vol, market tide -->
+                <div class="uw-grid" id="uwStatsGrid"></div>
+                <!-- Summaries -->
+                <div class="uw-summaries" id="uwSummaries"></div>
+                <!-- Signals list -->
+                <div style="margin-top:12px">
+                    <div style="font-size:9px;color:#475569;text-transform:uppercase;letter-spacing:.8px;font-weight:600;margin-bottom:7px">Señales detectadas</div>
+                    <div class="uw-signals" id="uwSignals"></div>
+                </div>
+            </div>
 
         </div>
     </div>
@@ -346,8 +391,8 @@
             <div class="stat-card"><div class="stat-num" id="stPending" style="color:var(--muted)">0</div><div class="stat-lbl">Pendientes</div></div>
         </div>
 
-        <!-- Stats avanzadas -->
-        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px">
+        <!-- Stats avanzadas fila 1 -->
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:10px">
             <!-- Por ticker -->
             <div class="sig-box" style="padding:14px">
                 <h3 style="font-size:11px;margin-bottom:10px">📊 ACIERTO POR TICKER</h3>
@@ -364,10 +409,23 @@
                 <div id="stBySignal" style="font-size:12px;line-height:1.8;color:var(--text2)">—</div>
             </div>
         </div>
+        <!-- Stats avanzadas fila 2: VIX y Gap real -->
+        <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:16px">
+            <div class="sig-box" style="padding:14px;border-left:3px solid var(--amber)">
+                <h3 style="font-size:11px;margin-bottom:10px">📉 ACIERTO POR RANGO VIX</h3>
+                <div id="stByVix" style="font-size:12px;line-height:1.9;color:var(--text2)">—</div>
+                <div style="font-size:10px;color:var(--muted);margin-top:6px">Tranquilo &lt;15 · Normal 15-25 · Nervioso 25-30 · Pánico &gt;30</div>
+            </div>
+            <div class="sig-box" style="padding:14px;border-left:3px solid var(--blue)">
+                <h3 style="font-size:11px;margin-bottom:10px">📏 GAP REAL REGISTRADO</h3>
+                <div id="stGapReal" style="font-size:12px;line-height:1.9;color:var(--text2)">—</div>
+                <div style="font-size:10px;color:var(--muted);margin-top:6px">Gap % real de apertura vs probabilidad predicha</div>
+            </div>
+        </div>
 
         <!-- Formulario nueva operación -->
         <div class="add-trade">
-            <h3>Nueva operación</h3>
+            <h3>Nueva operación <span style="font-size:10px;font-weight:400;color:var(--muted)">· VIX y futuros se auto-rellenan al pulsar Registrar</span></h3>
             <div class="form-row" style="flex-wrap:wrap;gap:8px">
                 <input type="text"   class="form-input" id="trTicker" placeholder="Ticker" style="width:75px" maxlength="5">
                 <select             class="form-select" id="trPred">
@@ -380,7 +438,10 @@
                     <option value="clara">🟢 Señal Clara</option>
                     <option value="moderada">🟡 Señal Moderada</option>
                 </select>
-                <input type="text"   class="form-input" id="trNotes"  placeholder="Notas" style="flex:1;min-width:120px">
+                <input type="number" class="form-input" id="trVix" placeholder="VIX" style="width:70px" step="0.1">
+                <select class="form-select" id="trFutures"><option value="">Futuros</option><option value="alcista">🟢 Alcista</option><option value="bajista">🔴 Bajista</option><option value="neutral">⚪ Neutral</option><option value="divergencia">⚠️ Divergencia</option></select>
+                <input type="number" class="form-input" id="trGapReal" placeholder="Gap real %" style="width:100px" step="0.01">
+                <input type="text"   class="form-input" id="trNotes"  placeholder="Notas" style="flex:1;min-width:100px">
                 <button class="btn btn-dark" onclick="addTrade()" style="padding:8px 18px;font-size:12px">+ Añadir</button>
             </div>
         </div>
@@ -462,6 +523,96 @@ async function analyzeStock(){
     document.getElementById('loadingSearch').style.display='none';
 }
 
+
+/* ─── UNUSUAL WHALES RENDER ─── */
+function renderUW(uw) {
+    if (!uw) return;
+    const box = document.getElementById('uwBox');
+    box.style.display = 'block';
+
+    const score = uw.uw_total_score || 0;
+    const callK = uw.call_premium_k || 0;
+    const putK  = uw.put_premium_k  || 0;
+    const dpVol = uw.dp_volume_m    || 0;
+    const tidePct = uw.tide_call_pct || 50;
+
+    // Badge principal
+    const badge = document.getElementById('uwBadge');
+    if (score >= 3) {
+        badge.className = 'uw-badge uw-bull';
+        badge.textContent = '🐋 ALCISTA INSTITUCIONAL';
+    } else if (score <= -3) {
+        badge.className = 'uw-badge uw-bear';
+        badge.textContent = '🐋 BAJISTA INSTITUCIONAL';
+    } else if (score > 0) {
+        badge.className = 'uw-badge uw-bull';
+        badge.textContent = '↗ Ligera presión alcista';
+    } else if (score < 0) {
+        badge.className = 'uw-badge uw-bear';
+        badge.textContent = '↘ Ligera presión bajista';
+    } else {
+        badge.className = 'uw-badge uw-neu';
+        badge.textContent = '⚪ Flujo neutro';
+    }
+
+    // Stats grid
+    const callColor  = callK > putK ? '#34d399' : '#94a3b8';
+    const putColor   = putK  > callK ? '#f87171' : '#94a3b8';
+    const tideColor  = tidePct >= 60 ? '#34d399' : tidePct <= 40 ? '#f87171' : '#94a3b8';
+    const scoreColor = score >= 3 ? '#34d399' : score <= -3 ? '#f87171' : '#94a3b8';
+
+    document.getElementById('uwStatsGrid').innerHTML = `
+        <div class="uw-stat">
+            <div class="uw-stat-val" style="color:${callColor}">$${callK > 999 ? (callK/1000).toFixed(1)+'M' : callK+'K'}</div>
+            <div class="uw-stat-lbl">📈 Premium CALLs</div>
+        </div>
+        <div class="uw-stat">
+            <div class="uw-stat-val" style="color:${putColor}">$${putK > 999 ? (putK/1000).toFixed(1)+'M' : putK+'K'}</div>
+            <div class="uw-stat-lbl">📉 Premium PUTs</div>
+        </div>
+        <div class="uw-stat">
+            <div class="uw-stat-val" style="color:#7dd3fc">${dpVol > 0 ? '$'+dpVol.toFixed(1)+'M' : '—'}</div>
+            <div class="uw-stat-lbl">🏊 Dark Pool Vol</div>
+        </div>
+        <div class="uw-stat">
+            <div class="uw-stat-val" style="color:${tideColor}">${tidePct.toFixed(0)}% / ${(100-tidePct).toFixed(0)}%</div>
+            <div class="uw-stat-lbl">🌊 Market Tide C/P</div>
+        </div>
+        <div class="uw-stat">
+            <div class="uw-stat-val" style="color:${scoreColor}">${score > 0 ? '+' : ''}${score}</div>
+            <div class="uw-stat-lbl">⚡ Score Total UW</div>
+        </div>
+    `;
+
+    // Summaries
+    const sums = [];
+    if (uw.flow_summary)     sums.push({lbl:'Opciones Flow',  txt: uw.flow_summary});
+    if (uw.dp_summary)       sums.push({lbl:'Dark Pool',      txt: uw.dp_summary});
+    if (uw.tide_signal)      sums.push({lbl:'Market Tide',    txt: uw.tide_signal});
+    if (uw.congress_summary) sums.push({lbl:'Congresistas',   txt: uw.congress_summary});
+
+    document.getElementById('uwSummaries').innerHTML = sums.map(s => `
+        <div class="uw-sum">
+            <div class="uw-sum-lbl">${s.lbl}</div>
+            <div>${s.txt}</div>
+        </div>`).join('') || '<div class="uw-no-data">Sin resúmenes disponibles</div>';
+
+    // Signals
+    const signals = uw.uw_all_signals || [];
+    const sigEl = document.getElementById('uwSignals');
+    if (signals.length) {
+        sigEl.innerHTML = signals.map(s => `
+            <div class="uw-sig-item">
+                <div>
+                    <div style="font-weight:600;color:#e2e8f0">${s.signal || ''}</div>
+                    <div class="uw-sig-detail">${s.detail || ''}</div>
+                </div>
+                <span class="${s.points > 0 ? 'uw-pts-pos' : 'uw-pts-neg'}">${s.points > 0 ? '+' : ''}${s.points}</span>
+            </div>`).join('');
+    } else {
+        sigEl.innerHTML = '<div class="uw-no-data">Sin señales UW detectadas en este ticker</div>';
+    }
+}
 /* ─── RENDER ─── */
 function renderResult(d){
     // Cabecera
@@ -566,6 +717,13 @@ function renderResult(d){
 
 
 
+    // Unusual Whales
+    if (d.uw_data) {
+        renderUW(d.uw_data);
+    } else {
+        document.getElementById('uwBox').style.display = 'none';
+    }
+
     document.getElementById('resultCard').style.display='block';
 }
 
@@ -631,6 +789,15 @@ function registerTrade(direction){
     if(titulo.includes('🔥🔥'))       document.getElementById('trSignal').value='fuerte';
     else if(titulo.includes('CLARA'))  document.getElementById('trSignal').value='clara';
     else                               document.getElementById('trSignal').value='moderada';
+    // Auto-rellenar VIX
+    if(currentData.vix_level) document.getElementById('trVix').value=currentData.vix_level;
+    // Auto-rellenar futuros
+    const futSig=(currentData.futures_signal||'').toLowerCase();
+    if(futSig.includes('confirmaci'))      document.getElementById('trFutures').value='alcista';
+    else if(futSig.includes('divergencia'))document.getElementById('trFutures').value='divergencia';
+    else if(futSig.includes('bajista'))    document.getElementById('trFutures').value='bajista';
+    else if(futSig.includes('alcista'))    document.getElementById('trFutures').value='alcista';
+    else                                   document.getElementById('trFutures').value='neutral';
     window.scrollTo({top:document.body.scrollHeight,behavior:'smooth'});
 }
 
@@ -641,19 +808,26 @@ function addTrade(){
     const id=(trades.length?Math.max(...trades.map(t=>t.id)):0)+1;
     const now=new Date();
     const dias=['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
+    const vixVal=parseFloat(document.getElementById('trVix').value)||null;
     trades.push({
         id, ticker,
-        prediction: document.getElementById('trPred').value,
-        probability:parseInt(document.getElementById('trProb').value)||0,
-        signal_level:document.getElementById('trSignal').value,
-        notes:      document.getElementById('trNotes').value,
-        result:     'pending',
-        date:       now.toLocaleString('es-ES',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'}),
-        dow:        dias[now.getDay()]
+        prediction:   document.getElementById('trPred').value,
+        probability:  parseInt(document.getElementById('trProb').value)||0,
+        signal_level: document.getElementById('trSignal').value,
+        vix:          vixVal,
+        futures_dir:  document.getElementById('trFutures').value||null,
+        gap_real:     parseFloat(document.getElementById('trGapReal').value)||null,
+        notes:        document.getElementById('trNotes').value,
+        result:       'pending',
+        date:         now.toLocaleString('es-ES',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'}),
+        dow:          dias[now.getDay()]
     });
     saveTradesLS(trades);
     document.getElementById('trTicker').value='';
     document.getElementById('trProb').value='';
+    document.getElementById('trVix').value='';
+    document.getElementById('trGapReal').value='';
+    document.getElementById('trFutures').value='';
     document.getElementById('trNotes').value='';
     renderTrades();
 }
@@ -732,7 +906,39 @@ function renderTrades(){
         .map(([k,v])=>`<div style="display:flex;justify-content:space-between"><b>${sigLabels[k]}</b>${accStr(v.w,v.c)}</div>`).join('');
     document.getElementById('stBySignal').innerHTML=sigHtml;
 
-    // Lista de operaciones
+    // ── Acierto por rango VIX ─────────────────────────────────────
+    const byVix={'<15':{w:0,c:0,label:'✅ Tranquilo <15'},
+                 '15-25':{w:0,c:0,label:'⚪ Normal 15-25'},
+                 '25-30':{w:0,c:0,label:'⚠️ Nervioso 25-30'},
+                 '>30':{w:0,c:0,label:'🔴 Pánico >30'}};
+    closed.forEach(t=>{
+        if(t.vix==null) return;
+        const v=parseFloat(t.vix);
+        const rng=v<15?'<15':v<25?'15-25':v<30?'25-30':'>30';
+        byVix[rng].c++;
+        if(t.result==='win') byVix[rng].w++;
+    });
+    const vixHtml=Object.entries(byVix).filter(([,v])=>v.c>0)
+        .map(([,v])=>`<div style="display:flex;justify-content:space-between"><b>${v.label}</b>${accStr(v.w,v.c)}</div>`).join('');
+    document.getElementById('stByVix').innerHTML=vixHtml||'<span style="color:var(--muted)">Sin datos VIX aún</span>';
+
+    // ── Gap real promedio ─────────────────────────────────────────
+    const withGap=closed.filter(t=>t.gap_real!=null);
+    let gapHtml='<span style="color:var(--muted)">Sin gaps registrados aún</span>';
+    if(withGap.length){
+        const avg=(withGap.reduce((s,t)=>s+parseFloat(t.gap_real),0)/withGap.length).toFixed(2);
+        const wg=withGap.filter(t=>t.result==='win');
+        const lg=withGap.filter(t=>t.result==='loss');
+        const avgW=wg.length?(wg.reduce((s,t)=>s+Math.abs(parseFloat(t.gap_real)),0)/wg.length).toFixed(2):0;
+        const avgL=lg.length?(lg.reduce((s,t)=>s+Math.abs(parseFloat(t.gap_real)),0)/lg.length).toFixed(2):0;
+        gapHtml=`<div style="display:flex;justify-content:space-between"><b>Gap promedio</b><span>${avg>0?'+':''}${avg}%</span></div>
+                 <div style="display:flex;justify-content:space-between"><b>✓ Aciertos gap medio</b><span style="color:var(--green)">+${avgW}%</span></div>
+                 <div style="display:flex;justify-content:space-between"><b>✗ Fallos gap medio</b><span style="color:var(--red)">-${avgL}%</span></div>
+                 <div style="display:flex;justify-content:space-between"><b>Registrados</b><span>${withGap.length}/${closed.length}</span></div>`;
+    }
+    document.getElementById('stGapReal').innerHTML=gapHtml;
+
+    // ── Lista de operaciones ──────────────────────────────────────
     const list=document.getElementById('tradesList');
     if(!trades.length){list.innerHTML='<div class="no-trades">No hay operaciones registradas aún</div>';return;}
     list.innerHTML='';
@@ -742,6 +948,17 @@ function renderTrades(){
         const pc=t.prediction==='ALCISTA'?'c-bullish':'c-bearish';
         const pi=t.prediction==='ALCISTA'?'↑':'↓';
         const sigTag=t.signal_level==='fuerte'?'🔥🔥':t.signal_level==='moderada'?'🟡':'🟢';
+        // VIX con color según nivel
+        const vixTag=t.vix!=null
+            ?`<span style="font-size:10px;background:${t.vix>=30?'var(--red-bg)':t.vix>=25?'var(--amber-bg)':'var(--green-bg)'};
+               color:${t.vix>=30?'var(--red)':t.vix>=25?'var(--amber)':'var(--green)'};
+               padding:1px 5px;border-radius:4px;margin-right:4px">VIX ${t.vix}${t.vix>=30?' 🔴':t.vix>=25?' ⚠️':' ✅'}</span>`:'';
+        // Futuros
+        const futMap={alcista:'🟢 Fut alcista',bajista:'🔴 Fut bajista',neutral:'⚪ Fut neutral',divergencia:'⚠️ Divergencia'};
+        const futTag=t.futures_dir?`<span style="font-size:10px;color:var(--muted);margin-right:4px">${futMap[t.futures_dir]||''}</span>`:'';
+        // Gap real
+        const gapTag=t.gap_real!=null
+            ?`<span style="font-size:10px;color:${parseFloat(t.gap_real)>=0?'var(--green)':'var(--red)'};margin-right:4px">Gap: ${t.gap_real>0?'+':''}${t.gap_real}%</span>`:'';
         const rp=t.result==='win'?'<span class="rpill pill-win">✓ Acierto</span>'
                 :t.result==='loss'?'<span class="rpill pill-loss">✗ Fallo</span>'
                 :'<span class="rpill pill-pend">⏳ Pendiente</span>';
@@ -752,7 +969,8 @@ function renderTrades(){
             <div class="tr-ticker">${t.ticker}</div>
             <div class="tr-meta">
                 <div class="tr-pred ${pc}">${pi} ${t.prediction} · ${t.probability}% · ${sigTag}</div>
-                <div class="tr-info">${t.dow||''} ${t.date}${t.notes?' · '+t.notes:''}</div>
+                <div class="tr-info" style="margin-top:3px">${t.dow||''} ${t.date}${t.notes?' · '+t.notes:''}</div>
+                <div style="margin-top:4px">${vixTag}${futTag}${gapTag}</div>
             </div>
             <div class="tr-actions">${rp}${ab}<button class="btn-icon" onclick="deleteTrade(${t.id})" title="Eliminar">✕</button></div>`;
         list.appendChild(el);
