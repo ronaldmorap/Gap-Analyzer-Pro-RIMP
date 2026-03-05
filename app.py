@@ -1594,7 +1594,11 @@ def get_uw_congress(ticker):
                 pts=-1.0*rw; sells+=1; emoji='🏛️🔴'; action='VENTA'
             else: continue
             score+=pts
-            signals.append({'signal':f'{emoji} Congresista {action}','detail':f'{politician} · {amounts} · hace {days_ago}d','points':round(pts,1),'bullish':pts>0})
+            # Color por antigüedad
+            if days_ago <= 7:    age_icon = '🟢'
+            elif days_ago <= 30: age_icon = '🟡'
+            else:                age_icon = '🔘'
+            signals.append({'signal':f'{emoji} Congresista {action} {age_icon}','detail':f'{politician} · {amounts} · hace {days_ago}d (peso {rw:.1f}x)','points':round(pts,1),'bullish':pts>0})
         except Exception: continue
     if buys+sells>0: summary=f'🏛️ {buys} compras / {sells} ventas congresistas (90d)'
     elif signals:    summary=f'🏛️ {len(signals)} operaciones detectadas (90d)'
