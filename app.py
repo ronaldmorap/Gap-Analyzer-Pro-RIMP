@@ -1054,7 +1054,8 @@ def get_ftmo_signal(probability, raw_direction, futures_warning,
                     vol_signal, rvol,
                     macro_title=None, macro_date=None, macro_time=None,
                     macro_sent=None, vol_pct=0,
-                    vix_level=15.0, is_monday=False):
+                    vix_level=15.0, is_monday=False,
+                    uw_data=None):
     """
     Semáforo FTMO con etiquetas específicas y descriptivas en cada señal.
     Verde: opera. Amarillo: reduce tamaño. Rojo: no operar.
@@ -1208,6 +1209,91 @@ def get_ftmo_signal(probability, raw_direction, futures_warning,
             contra.append(f'⚠️ Evento macro — alta volatilidad: {noticia_txt}{when_txt}')
 
     # ── DECISIÓN FINAL ────────────────────────────────────────────
+    # ── UW — UNUSUAL WHALES INSTITUCIONAL ──────────────────────────
+    if uw_data:
+        uw_score   = uw_data.get('uw_total_score', 0)
+        call_k     = uw_data.get('call_premium_k', 0)
+        put_k      = uw_data.get('put_premium_k', 0)
+        dp_vol     = uw_data.get('dp_volume_m', 0)
+        dp_count   = uw_data.get('dp_count', 0)
+        tide_pct   = uw_data.get('tide_call_pct', 50)
+        tide_bull  = uw_data.get('tide_bullish')
+        oi_ratio   = uw_data.get('oi_ratio', 1.0)
+        max_pain   = uw_data.get('max_pain', 0)
+        cong_buys  = uw_data.get('congress_buys', 0)
+        cong_sells = uw_data.get('congress_sells', 0)
+        flow_sum   = uw_data.get('flow_summary', '')
+        total_k    = uw_data.get('total_flow_k', 0)
+
+        def _uw_is_bullish(val): return val > 0 if raw_direction == 'ALCISTA' else val < 0
+
+        # Premium CALLs vs PUTs
+        if call_k > 0 or put_k > 0:
+            total_flow = call_k + put_k
+            if total_flow > 0:
+                call_pct = call_k / total_flow * 100
+                flow_str = f'${total_k:.0f}K total' if total_k < 1000 else f'${total_k/1000:.1f}M total'
+                if call_pct >= 65:
+                    if raw_direction == 'ALCISTA':
+                        favor.append(f'🐋 Premium CALLs ${call_k:.0f}K ({call_pct:.0f}%) — flujo institucional alcista ({flow_str})')
+                    else:
+                        contra.append(f'🐋 Premium CALLs ${call_k:.0f}K ({call_pct:.0f}%) — flujo institucional contra la dirección bajista')
+                elif call_pct <= 35:
+                    if raw_direction == 'BAJISTA':
+                        favor.append(f'🐋 Premium PUTs ${put_k:.0f}K ({100-call_pct:.0f}%) — flujo institucional bajista ({flow_str})')
+                    else:
+                        contra.append(f'🐋 Premium PUTs ${put_k:.0f}K ({100-call_pct:.0f}%) — flujo institucional contra la dirección alcista')
+                else:
+                    contra.append(f'🐋 Flujo opciones mixto — {call_pct:.0f}% CALLs vs {100-call_pct:.0f}% PUTs · sin consenso institucional')
+
+        # Dark Pool
+        if dp_vol > 0 and dp_count > 0:
+            dp_str = f'${dp_vol:.1f}M en {dp_count} prints significativos'
+            if uw_score > 0 and raw_direction == 'ALCISTA':
+                favor.append(f'🏊 Dark Pool alcista — {dp_str}')
+            elif uw_score < 0 and raw_direction == 'BAJISTA':
+                favor.append(f'🏊 Dark Pool bajista — {dp_str}')
+            elif uw_score > 0 and raw_direction == 'BAJISTA':
+                contra.append(f'🏊 Dark Pool comprador ({dp_str}) — contradice dirección bajista')
+            elif uw_score < 0 and raw_direction == 'ALCISTA':
+                contra.append(f'🏊 Dark Pool vendedor ({dp_str}) — contradice dirección alcista')
+
+        # Market Tide
+        if tide_bull is True:
+            if raw_direction == 'ALCISTA':
+                favor.append(f'🌊 Market Tide alcista — {tide_pct:.0f}% del premium en CALLs (mercado institucional comprador)')
+            else:
+                contra.append(f'🌊 Market Tide alcista ({tide_pct:.0f}% CALLs) — contradice dirección bajista')
+        elif tide_bull is False:
+            if raw_direction == 'BAJISTA':
+                favor.append(f'🌊 Market Tide bajista — {100-tide_pct:.0f}% del premium en PUTs (mercado institucional vendedor)')
+            else:
+                contra.append(f'🌊 Market Tide bajista ({100-tide_pct:.0f}% PUTs) — contradice dirección alcista')
+
+        # OI / Max Pain
+        if oi_ratio >= 1.5:
+            if raw_direction == 'ALCISTA':
+                favor.append(f'🎯 OI alcista — {oi_ratio:.1f}x más CALLs que PUTs abiertos{f" · Max Pain ${max_pain:.0f}" if max_pain else ""}')
+            else:
+                contra.append(f'🎯 OI alcista ({oi_ratio:.1f}x CALLs) — contradice dirección bajista')
+        elif oi_ratio <= 0.67:
+            if raw_direction == 'BAJISTA':
+                favor.append(f'🎯 OI bajista — {1/oi_ratio:.1f}x más PUTs que CALLs abiertos{f" · Max Pain ${max_pain:.0f}" if max_pain else ""}')
+            else:
+                contra.append(f'🎯 OI bajista ({1/oi_ratio:.1f}x PUTs) — contradice dirección alcista')
+
+        # Congresistas
+        if cong_buys > 0:
+            if raw_direction == 'ALCISTA':
+                favor.append(f'🏛️ {cong_buys} compra{"s" if cong_buys>1 else ""} de congresistas en los últimos 90 días')
+            else:
+                contra.append(f'🏛️ {cong_buys} compra{"s" if cong_buys>1 else ""} de congresistas — contradice dirección bajista')
+        if cong_sells > 0:
+            if raw_direction == 'BAJISTA':
+                favor.append(f'🏛️ {cong_sells} venta{"s" if cong_sells>1 else ""} de congresistas en los últimos 90 días')
+            else:
+                contra.append(f'🏛️ {cong_sells} venta{"s" if cong_sells>1 else ""} de congresistas — contradice dirección alcista')
+
     n_favor  = len(favor)
     n_contra = len(contra)
 
@@ -1405,61 +1491,79 @@ def get_uw_market_tide():
     except Exception: _cache_set(cache_key, empty); return empty
 
 def get_uw_open_interest(ticker):
+    """
+    OI por strike usando el endpoint correcto de UW.
+    Intenta múltiples endpoints hasta encontrar el que funcione con el plan Basic.
+    """
     cache_key = f'uw_oi_{ticker}'
     cached = _cache_get(cache_key)
     if cached is not None: return cached
     empty = {'oi_score':0,'oi_signals':[],'oi_summary':'','max_pain':0,'call_oi':0,'put_oi':0,'oi_ratio':1.0,'oi_expiry':''}
-    data = _uw_get(f"/api/stock/{ticker}/option-contracts/expirations")
-    if not data: data = _uw_get(f"/api/stock/{ticker}/oi-change")
-    if not data: _cache_set(cache_key, empty); return empty
-    try:
-        expirations = data if isinstance(data, list) else data.get('data', [])
-        if not expirations: _cache_set(cache_key, empty); return empty
-        today = datetime.utcnow()
-        nearest = None
-        for exp in expirations[:5]:
-            exp_str = exp if isinstance(exp, str) else exp.get('expiration') or exp.get('date') or ''
-            try:
-                exp_date = datetime.strptime(exp_str[:10], '%Y-%m-%d')
-                if exp_date >= today: nearest = exp_str[:10]; break
-            except Exception: continue
-        if not nearest: _cache_set(cache_key, empty); return empty
-        oi_data = _uw_get(f"/api/stock/{ticker}/option-contracts/{nearest}/strikes")
-        if not oi_data: oi_data = _uw_get(f"/api/stock/{ticker}/options/oi", params={'expiry':nearest})
-        if not oi_data: _cache_set(cache_key, empty); return empty
-        strikes = oi_data if isinstance(oi_data, list) else oi_data.get('data', [])
-        if not strikes: _cache_set(cache_key, empty); return empty
-        strike_oi={}; total_call_oi=0; total_put_oi=0
-        for s in strikes:
-            sv=float(s.get('strike') or s.get('strike_price') or 0)
-            co=int(s.get('call_oi') or s.get('calls_oi') or 0)
-            po=int(s.get('put_oi') or s.get('puts_oi') or 0)
-            if sv>0: strike_oi[sv]={'call':co,'put':po}; total_call_oi+=co; total_put_oi+=po
-        if not strike_oi: _cache_set(cache_key, empty); return empty
-        max_pain_strike = max(strike_oi, key=lambda k: strike_oi[k]['call']+strike_oi[k]['put'])
-        oi_ratio = (total_call_oi/total_put_oi) if total_put_oi>0 else 1.0
-        score=0; signals=[]
-        if oi_ratio>=1.5:   score+=1.2; signals.append({'signal':f'🎯 OI alcista — {oi_ratio:.1f}x más CALLs','detail':f'{total_call_oi:,} call OI vs {total_put_oi:,} put OI · {nearest}','points':1.2,'bullish':True})
-        elif oi_ratio<=0.67: score-=1.2; signals.append({'signal':f'🎯 OI bajista — {1/oi_ratio:.1f}x más PUTs','detail':f'{total_put_oi:,} put OI vs {total_call_oi:,} call OI · {nearest}','points':-1.2,'bullish':False})
-        flow_raw = _uw_get(f"/api/stock/{ticker}/flow-recent")
-        current_price=0
-        if flow_raw and flow_raw.get('data'):
-            try: current_price=float(flow_raw['data'][0].get('underlying_price') or 0)
-            except Exception: pass
-        if current_price>0:
-            diff_pct=((max_pain_strike-current_price)/current_price)*100
-            if abs(diff_pct)>=0.5:
-                pts=0.8 if diff_pct>0 else -0.8; score+=pts
-                mp_oi=strike_oi[max_pain_strike]
-                signals.append({'signal':f'🧲 Max Pain ${max_pain_strike:.0f} — precio tiende {"alcista" if diff_pct>0 else "bajista"}','detail':f'Actual ${current_price:.2f} → Max Pain {diff_pct:+.1f}% · {mp_oi["call"]+mp_oi["put"]:,} OI','points':pts,'bullish':pts>0})
-        if oi_ratio>=1.5:   summary=f'🎯 OI alcista ({oi_ratio:.1f}x calls) · Max Pain ${max_pain_strike:.0f} · {nearest}'
-        elif oi_ratio<=0.67: summary=f'🎯 OI bajista ({1/oi_ratio:.1f}x puts) · Max Pain ${max_pain_strike:.0f} · {nearest}'
-        else:                summary=f'🎯 OI neutro ({oi_ratio:.1f} ratio) · Max Pain ${max_pain_strike:.0f} · {nearest}'
-        result={'oi_score':round(score,1),'oi_signals':signals,'oi_summary':summary,'max_pain':max_pain_strike,
-                'call_oi':total_call_oi,'put_oi':total_put_oi,'oi_ratio':round(oi_ratio,2),'oi_expiry':nearest}
-        _cache_set(cache_key, result); return result
-    except Exception: _cache_set(cache_key, empty); return empty
 
+    # Try multiple OI endpoints — Basic plan may have different access
+    oi_data = None
+    endpoints_tried = []
+
+    # Option 1: options OI summary (most common in Basic)
+    for ep in [
+        f"/api/stock/{ticker}/options/oi-totals",
+        f"/api/stock/{ticker}/option-contracts/stats",
+        f"/api/stock/{ticker}/options/volume",
+        f"/api/stock/{ticker}/options/summary",
+    ]:
+        endpoints_tried.append(ep)
+        oi_data = _uw_get(ep)
+        if oi_data:
+            break
+
+    # Option 2: derive from flow-recent — use strike distribution
+    if not oi_data:
+        flow_raw = _uw_get(f"/api/stock/{ticker}/flow-recent")
+        if flow_raw:
+            items = flow_raw if isinstance(flow_raw, list) else flow_raw.get('data', [])
+            if items:
+                call_count=0; put_count=0; call_prem=0; put_prem=0
+                underlying=0; strike_volumes = {}
+                for t in items[:50]:
+                    try:
+                        strike    = float(t.get('strike') or 0)
+                        und       = float(t.get('underlying_price') or 0)
+                        prem      = float(t.get('total_premium') or t.get('premium') or 0)
+                        if strike==0 or und==0 or prem<10000: continue
+                        if und>0: underlying = und
+                        is_call = strike >= und*0.995
+                        if strike > und*1.005:   is_call=True
+                        elif strike < und*0.995: is_call=False
+                        if is_call: call_count+=1; call_prem+=prem
+                        else:       put_count+=1;  put_prem+=prem
+                        strike_volumes[strike] = strike_volumes.get(strike,0) + prem
+                    except Exception: continue
+
+                total = call_count+put_count
+                if total > 0:
+                    oi_ratio = (call_count/put_count) if put_count>0 else 2.0
+                    max_pain = max(strike_volumes, key=strike_volumes.get) if strike_volumes else 0
+                    score=0; signals=[]
+                    if oi_ratio>=1.5:
+                        score+=1.2
+                        signals.append({'signal':f'🎯 Flujo alcista — {oi_ratio:.1f}x más CALLs que PUTs','detail':f'{call_count} trades CALL vs {put_count} PUT · ${call_prem/1000:.0f}K vs ${put_prem/1000:.0f}K','points':1.2,'bullish':True})
+                    elif oi_ratio<=0.67:
+                        score-=1.2
+                        signals.append({'signal':f'🎯 Flujo bajista — {1/oi_ratio:.1f}x más PUTs que CALLs','detail':f'{put_count} trades PUT vs {call_count} CALL · ${put_prem/1000:.0f}K vs ${call_prem/1000:.0f}K','points':-1.2,'bullish':False})
+                    if max_pain>0 and underlying>0:
+                        diff=(max_pain-underlying)/underlying*100
+                        if abs(diff)>=0.3:
+                            pts=0.6 if diff>0 else -0.6; score+=pts
+                            signals.append({'signal':f'🧲 Concentración strike ${max_pain:.0f} — presión {"alcista" if diff>0 else "bajista"}','detail':f'Precio actual ${underlying:.2f} · strike concentrado {diff:+.1f}%','points':pts,'bullish':pts>0})
+                    if oi_ratio>=1.5:   summary=f'🎯 Ratio alcista ({oi_ratio:.1f}x calls) · strike concentrado ${max_pain:.0f}'
+                    elif oi_ratio<=0.67: summary=f'🎯 Ratio bajista ({1/oi_ratio:.1f}x puts) · strike concentrado ${max_pain:.0f}'
+                    else:                summary=f'🎯 Ratio neutro ({oi_ratio:.1f}) · strike concentrado ${max_pain:.0f}'
+                    result = {'oi_score':round(score,1),'oi_signals':signals,'oi_summary':summary,
+                              'max_pain':max_pain,'call_oi':call_count,'put_oi':put_count,
+                              'oi_ratio':round(oi_ratio,2),'oi_expiry':'(flujo reciente)'}
+                    _cache_set(cache_key, result); return result
+
+    _cache_set(cache_key, empty); return empty
 def get_uw_congress(ticker):
     cache_key = f'uw_congress_{ticker}'
     cached = _cache_get(cache_key)
@@ -1684,7 +1788,8 @@ def calculate_gap_probability(ticker):
             rvol            = vol_data['rvol'],
             vol_pct         = vol_data.get('price_change_pct', 0),
             vix_level       = vix_level,
-            is_monday       = is_monday
+            is_monday       = is_monday,
+            uw_data         = uw_data if uw_data else None
         )
 
         # Precio actual

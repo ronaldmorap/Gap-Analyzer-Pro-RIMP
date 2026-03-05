@@ -824,6 +824,22 @@ function registerTrade(direction){
     else if(futSig.includes('bajista'))    document.getElementById('trFutures').value='bajista';
     else if(futSig.includes('alcista'))    document.getElementById('trFutures').value='alcista';
     else                                   document.getElementById('trFutures').value='neutral';
+    // Guardar snapshot UW si está disponible
+    if(currentData.uw_data && currentData.uw_data.uw_total_score !== undefined) {
+        window._pendingUW = {
+            uw_score:      currentData.uw_data.uw_total_score,
+            uw_call_k:     currentData.uw_data.call_premium_k,
+            uw_put_k:      currentData.uw_data.put_premium_k,
+            uw_tide_pct:   currentData.uw_data.tide_call_pct,
+            uw_dp_vol:     currentData.uw_data.dp_volume_m,
+            uw_max_pain:   currentData.uw_data.max_pain,
+            uw_oi_ratio:   currentData.uw_data.oi_ratio,
+            uw_congress_b: currentData.uw_data.congress_buys,
+            uw_congress_s: currentData.uw_data.congress_sells,
+        };
+    } else {
+        window._pendingUW = null;
+    }
     // Scroll al formulario de nueva operación, no al final de la página
     const addForm = document.querySelector('.add-trade');
     if (addForm) {
@@ -852,8 +868,10 @@ function addTrade(){
         notes:        document.getElementById('trNotes').value,
         result:       'pending',
         date:         now.toLocaleString('es-ES',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'}),
-        dow:          dias[now.getDay()]
+        dow:          dias[now.getDay()],
+        uw:           window._pendingUW || null,
     });
+    window._pendingUW = null;
     saveTradesLS(trades);
     document.getElementById('trTicker').value='';
     document.getElementById('trProb').value='';
@@ -1012,6 +1030,10 @@ function renderTrades(){
         // Gap real
         const gapTag=t.gap_real!=null
             ?`<span style="font-size:10px;color:${parseFloat(t.gap_real)>=0?'var(--green)':'var(--red)'};margin-right:4px">Gap: ${t.gap_real>0?'+':''}${t.gap_real}%</span>`:'';
+        // UW snapshot tag
+        const uwTag = t.uw
+            ? `<span style="font-size:10px;background:#f0fdf4;color:#16a34a;border:1px solid #bbf7d0;padding:1px 5px;border-radius:4px;margin-right:4px" title="UW Score: ${t.uw.uw_score} · Tide: ${t.uw.uw_tide_pct}% · DP: $${t.uw.uw_dp_vol}M">🐋 UW ${t.uw.uw_score>0?'+':''}${t.uw.uw_score}</span>`
+            : '';
         const rp=t.result==='win'?'<span class="rpill pill-win">✓ Acierto</span>'
                 :t.result==='loss'?'<span class="rpill pill-loss">✗ Fallo</span>'
                 :'<span class="rpill pill-pend">⏳ Pendiente</span>';
@@ -1027,7 +1049,7 @@ function renderTrades(){
             <div class="tr-meta">
                 <div class="tr-pred ${pc}">${pi} ${t.prediction} · ${t.probability}% · ${sigTag}</div>
                 <div class="tr-info" style="margin-top:3px">${t.dow||''} ${t.date}${t.notes?' · '+t.notes:''}</div>
-                <div style="margin-top:4px">${vixTag}${futTag}${gapTag}</div>
+                <div style="margin-top:4px">${vixTag}${futTag}${gapTag}${uwTag}</div>
             </div>
             <div class="tr-actions">${rp}${ab}${gapBtn}<button class="btn-icon" onclick="deleteTrade(${t.id})" title="Eliminar">✕</button></div>`;
         list.appendChild(el);
