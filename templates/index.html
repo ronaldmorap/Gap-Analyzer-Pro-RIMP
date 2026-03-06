@@ -1003,6 +1003,7 @@ async function editGap(id){
 
 async function renderTrades(){
     const trades = await loadTrades();
+    console.log("renderTrades: trades loaded =", trades.length, trades);
     const closed=trades.filter(t=>t.result!=='pending');
     const wins=trades.filter(t=>t.result==='win').length;
     const losses=trades.filter(t=>t.result==='loss').length;
@@ -1090,7 +1091,7 @@ async function renderTrades(){
     const list=document.getElementById('tradesList');
     if(!trades.length){list.innerHTML='<div class="no-trades">No hay operaciones registradas aún</div>';return;}
     list.innerHTML='';
-    [...trades].reverse().forEach(t=>{
+    [...trades].reverse().forEach(t=>{ try {
         const el=document.createElement('div');
         el.className=`trade-row ${t.result}`;
         const pc=t.prediction==='ALCISTA'?'c-bullish':'c-bearish';
@@ -1142,6 +1143,7 @@ async function renderTrades(){
             </div>
             <div class="tr-actions">${rp}${ab}${gapBtn}<button class="btn-icon" onclick="deleteTradeById(${t.id})" title="Eliminar">✕</button></div>`;
         list.appendChild(el);
+    } catch(err) { console.error("Trade render error:", err, t); }
     });
 }
 
