@@ -369,16 +369,14 @@
 
     <!-- TRADES -->
     <div class="section">
-        <div class="sec-hdr">
+        <div class="sec-hdr" style="flex-wrap:wrap;row-gap:8px;overflow:hidden">
             <h2>Registro de Operaciones</h2>
             <div class="sec-line"></div>
             <span class="ls-badge">☁️ Nube</span>
             <div class="sec-line"></div>
             <div class="sec-tag" id="accBadge">Sin datos</div>
-            <div style="display:flex;gap:6px;flex-wrap:wrap;width:100%;margin-top:6px">
-                <button class="btn btn-dark" onclick="calcGapsAuto()" style="font-size:10px;padding:5px 10px;flex:1;min-width:0" title="Calcula gap real usando precio apertura de hoy">📊 Gaps de hoy</button>
-                <button class="btn btn-dark" id="migrateBtn" onclick="migrateLocalStorage()" style="font-size:10px;padding:5px 10px;flex:1;min-width:0;background:var(--amber);color:#000" title="Importa operaciones del navegador a la nube">☁️ Migrar</button>
-            </div>
+            <button class="btn btn-dark" onclick="calcGapsAuto()" style="font-size:10px;padding:5px 10px;white-space:nowrap" title="Calcula gap real usando precio apertura de hoy">📊 Gaps de hoy</button>
+            <button class="btn btn-dark" id="migrateBtn" onclick="migrateLocalStorage()" style="font-size:10px;padding:5px 10px;white-space:nowrap;background:var(--amber);color:#000" title="Importa operaciones del navegador a la nube">☁️ Migrar</button>
         </div>
 
         <!-- Stats principales -->
