@@ -457,8 +457,13 @@ const TRADES_KEY = 'gap_analyzer_trades_v1';
 async function loadTrades() {
     try {
         const r = await fetch('/trades');
-        return await r.json();
-    } catch { return []; }
+        const data = await r.json();
+        console.log('loadTrades response:', r.status, Array.isArray(data) ? data.length + ' trades' : data);
+        return Array.isArray(data) ? data : [];
+    } catch(e) {
+        console.error('loadTrades error:', e);
+        return [];
+    }
 }
 
 async function saveTrade(trade) {
