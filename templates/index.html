@@ -1109,8 +1109,16 @@ async function renderTrades(){
         const futMap={alcista:'🟢 Fut alcista',bajista:'🔴 Fut bajista',neutral:'⚪ Fut neutral',divergencia:'⚠️ Divergencia'};
         const futTag=t.futures_dir?`<span style="font-size:10px;color:var(--muted);margin-right:4px">${futMap[t.futures_dir]||''}</span>`:'';
         // Gap real
-        const gapTag=t.gap_real!=null
-            ?`<span style="font-size:10px;color:${parseFloat(t.gap_real)>=0?'var(--green)':'var(--red)'};margin-right:4px">Gap: ${t.gap_real>0?'+':''}${t.gap_real}%</span>`:'';
+        const gapTag = t.gap_real != null ? (() => {
+            const g = parseFloat(t.gap_real);
+            const acertado = (t.prediction==='ALCISTA' && g>0) || (t.prediction==='BAJISTA' && g<0);
+            const fallado  = (t.prediction==='ALCISTA' && g<0) || (t.prediction==='BAJISTA' && g>0);
+            const icon  = acertado?'✅':fallado?'❌':'➖';
+            const color = acertado?'var(--green)':fallado?'var(--red)':'var(--muted)';
+            const bg    = acertado?'var(--green-bg)':fallado?'var(--red-bg)':'';
+            const border= acertado?'var(--green-b)':fallado?'var(--red-b)':'var(--border)';
+            return `<span style="font-size:10px;color:${color};background:${bg};border:1px solid ${border};padding:1px 6px;border-radius:4px;margin-right:4px" title="${acertado?'Gap acertado ✅':'Gap fallado ❌'} · predicción ${t.prediction}">${icon} Gap: ${g>0?'+':''}${g}%</span>`;
+        })() : '';
         // UW snapshot tag
         const uwTag = t.uw
             ? `<span style="font-size:10px;background:#f0fdf4;color:#16a34a;border:1px solid #bbf7d0;padding:1px 5px;border-radius:4px;margin-right:4px" title="UW Score: ${t.uw.uw_score} · Tide: ${t.uw.uw_tide_pct}% · DP: $${t.uw.uw_dp_vol}M">🐋 UW ${t.uw.uw_score>0?'+':''}${t.uw.uw_score}</span>`
