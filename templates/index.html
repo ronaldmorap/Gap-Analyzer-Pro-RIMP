@@ -1178,11 +1178,15 @@ async function checkUWSectionVisibility(data) {
     }
 }
 
-loadEarnings();
-loadDashboard();
-renderTrades();
-checkUWMode();
-migrateLocalStorage(); // migración automática única si hay datos en localStorage
+
+// ── INIT ─────────────────────────────────────────────────────────
+(async function init(){
+    loadEarnings();
+    loadDashboard();
+    await renderTrades();
+    checkUWMode();
+    migrateLocalStorage();
+})();
 
 async function calcGapsAuto(){
     const btn = event.target;
