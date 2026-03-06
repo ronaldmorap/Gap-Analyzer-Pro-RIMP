@@ -2035,19 +2035,22 @@ def add_trade():
             pass
 
     trade = {
-        'ticker':       ticker,
-        'prediction':   data.get('prediction'),
-        'probability':  data.get('probability'),
-        'signal_level': data.get('signal_level'),
-        'vix':          data.get('vix'),
-        'futures_dir':  data.get('futures_dir'),
-        'gap_real':     data.get('gap_real'),
-        'close_price':  close_price,
-        'notes':        data.get('notes'),
-        'result':       data.get('result', 'pending'),
-        'date':         data.get('date'),
-        'dow':          data.get('dow'),
-        'uw':           data.get('uw'),
+        'ticker':             ticker,
+        'prediction':         data.get('prediction'),
+        'system_prediction':  data.get('system_prediction'),
+        'system_probability': data.get('system_probability'),
+        'contra_signal':      bool(data.get('contra_signal', False)),
+        'probability':        data.get('probability'),
+        'signal_level':       data.get('signal_level'),
+        'vix':                data.get('vix'),
+        'futures_dir':        data.get('futures_dir'),
+        'gap_real':           data.get('gap_real'),
+        'close_price':        close_price,
+        'notes':              data.get('notes'),
+        'result':             data.get('result', 'pending'),
+        'date':               data.get('date'),
+        'dow':                data.get('dow'),
+        'uw':                 data.get('uw'),
     }
     result = _sb_post('trades', trade)
     if result:

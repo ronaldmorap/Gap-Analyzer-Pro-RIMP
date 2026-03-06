@@ -375,9 +375,9 @@
             <span class="ls-badge">☁️ Nube</span>
             <div class="sec-line"></div>
             <div class="sec-tag" id="accBadge">Sin datos</div>
-            <div style="display:flex;gap:6px;margin-left:auto;flex-wrap:wrap">
-                <button class="btn btn-dark" onclick="calcGapsAuto()" style="font-size:10px;padding:5px 10px" title="Calcula gap real usando precio apertura de hoy">📊 Gaps de hoy</button>
-                <button class="btn btn-dark" id="migrateBtn" onclick="migrateLocalStorage()" style="font-size:10px;padding:5px 10px;background:var(--amber);color:#000" title="Importa operaciones del navegador a la nube">☁️ Migrar</button>
+            <div style="display:flex;gap:6px;flex-wrap:wrap;width:100%;margin-top:6px">
+                <button class="btn btn-dark" onclick="calcGapsAuto()" style="font-size:10px;padding:5px 10px;flex:1;min-width:0" title="Calcula gap real usando precio apertura de hoy">📊 Gaps de hoy</button>
+                <button class="btn btn-dark" id="migrateBtn" onclick="migrateLocalStorage()" style="font-size:10px;padding:5px 10px;flex:1;min-width:0;background:var(--amber);color:#000" title="Importa operaciones del navegador a la nube">☁️ Migrar</button>
             </div>
         </div>
 
@@ -873,6 +873,17 @@ function registerTrade(direction){
     document.getElementById('trTicker').value = currentData.ticker;
     document.getElementById('trPred').value   = direction;
     document.getElementById('trProb').value   = currentData.probability;
+    // Detectar si se opera contra la señal del sistema
+    const sysPred = currentData.raw_direction; // lo que dijo el sistema
+    window._systemPrediction = sysPred;
+    window._systemProbability = currentData.probability;
+    // Aviso visual si va contra la señal
+    const isContra = (direction === 'ALCISTA' && sysPred === 'BAJISTA') ||
+                     (direction === 'BAJISTA' && sysPred === 'ALCISTA');
+    if(isContra){
+        const notesEl = document.getElementById('trNotes');
+        if(notesEl && !notesEl.value) notesEl.placeholder = '⚡ Contra señal — explica por qué (ej: RSI sobrecomprado, resistencia clave...)';
+    }
     // Auto-detectar nivel de señal
     const titulo = (currentData.ftmo_signal||{}).titulo||'';
     if(titulo.includes('🔥🔥'))       document.getElementById('trSignal').value='fuerte';
@@ -918,20 +929,29 @@ async function addTrade(){
     const now=new Date();
     const dias=['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
     const vixVal=parseFloat(document.getElementById('trVix').value)||null;
+    const userPred   = document.getElementById('trPred').value;
+    const sysPred    = window._systemPrediction || userPred;
+    const sysProb    = window._systemProbability || parseInt(document.getElementById('trProb').value)||0;
+    const isContra   = userPred !== sysPred;
     const trade = {
         ticker,
-        prediction:   document.getElementById('trPred').value,
-        probability:  parseInt(document.getElementById('trProb').value)||0,
-        signal_level: document.getElementById('trSignal').value,
-        vix:          vixVal,
-        futures_dir:  document.getElementById('trFutures').value||null,
-        gap_real:     parseFloat(document.getElementById('trGapReal').value)||null,
-        notes:        document.getElementById('trNotes').value,
-        result:       'pending',
-        date:         now.toLocaleString('es-ES',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'}),
-        dow:          dias[now.getDay()],
-        uw:           window._pendingUW || null,
+        prediction:        userPred,
+        system_prediction: sysPred,
+        system_probability: sysProb,
+        contra_signal:     isContra,
+        probability:       parseInt(document.getElementById('trProb').value)||0,
+        signal_level:      document.getElementById('trSignal').value,
+        vix:               vixVal,
+        futures_dir:       document.getElementById('trFutures').value||null,
+        gap_real:          parseFloat(document.getElementById('trGapReal').value)||null,
+        notes:             document.getElementById('trNotes').value,
+        result:            'pending',
+        date:              now.toLocaleString('es-ES',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'}),
+        dow:               dias[now.getDay()],
+        uw:                window._pendingUW || null,
     };
+    window._systemPrediction = null;
+    window._systemProbability = null;
     window._pendingUW = null;
     const btn = document.getElementById('addTradeBtn');
     if(btn){ btn.disabled=true; btn.textContent='Guardando…'; }
@@ -1078,6 +1098,10 @@ async function renderTrades(){
         const pc=t.prediction==='ALCISTA'?'c-bullish':'c-bearish';
         const pi=t.prediction==='ALCISTA'?'↑':'↓';
         const sigTag=t.signal_level==='fuerte'?'🔥🔥':t.signal_level==='moderada'?'🟡':'🟢';
+        // Contra señal badge
+        const contraTag = t.contra_signal
+            ? `<span style="font-size:10px;background:#fef3c7;color:#92400e;border:1px solid #fcd34d;padding:1px 6px;border-radius:4px;margin-right:4px" title="Sistema decía ${t.system_prediction} ${t.system_probability}% pero operaste ${t.prediction}">⚡ Contra señal · Sist. ${t.system_prediction} ${t.system_probability}%</span>`
+            : '';
         // VIX con color según nivel
         const vixTag=t.vix!=null
             ?`<span style="font-size:10px;background:${t.vix>=30?'var(--red-bg)':t.vix>=25?'var(--amber-bg)':'var(--green-bg)'};
@@ -1108,7 +1132,7 @@ async function renderTrades(){
             <div class="tr-meta">
                 <div class="tr-pred ${pc}">${pi} ${t.prediction} · ${t.probability}% · ${sigTag}</div>
                 <div class="tr-info" style="margin-top:3px">${t.dow||''} ${t.date}${t.notes?' · '+t.notes:''}</div>
-                <div style="margin-top:4px">${vixTag}${futTag}${gapTag}${uwTag}</div>
+                <div style="margin-top:4px">${contraTag}${vixTag}${futTag}${gapTag}${uwTag}</div>
             </div>
             <div class="tr-actions">${rp}${ab}${gapBtn}<button class="btn-icon" onclick="deleteTradeById(${t.id})" title="Eliminar">✕</button></div>`;
         list.appendChild(el);
