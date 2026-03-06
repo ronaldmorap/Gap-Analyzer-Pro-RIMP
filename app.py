@@ -13,6 +13,51 @@ import time
 
 app = Flask(__name__)
 
+# ── SUPABASE CONFIG ───────────────────────────────────────────────
+SUPABASE_URL     = os.environ.get('SUPABASE_URL', '')
+SUPABASE_PUB_KEY = os.environ.get('SUPABASE_PUB_KEY', '')
+SUPABASE_SECRET  = os.environ.get('SUPABASE_SECRET', '')
+
+def _sb_headers(secret=False):
+    key = SUPABASE_SECRET if secret else SUPABASE_PUB_KEY
+    return {
+        'apikey':        key,
+        'Authorization': f'Bearer {key}',
+        'Content-Type':  'application/json',
+        'Prefer':        'return=representation'
+    }
+
+def _sb_get(table, params=None):
+    try:
+        r = requests.get(f'{SUPABASE_URL}/rest/v1/{table}',
+                        headers=_sb_headers(), params=params, timeout=10)
+        return r.json() if r.status_code == 200 else []
+    except Exception: return []
+
+def _sb_post(table, data):
+    try:
+        r = requests.post(f'{SUPABASE_URL}/rest/v1/{table}',
+                         headers=_sb_headers(secret=True),
+                         json=data, timeout=10)
+        return r.json() if r.status_code in (200, 201) else None
+    except Exception: return None
+
+def _sb_patch(table, row_id, data):
+    try:
+        r = requests.patch(f'{SUPABASE_URL}/rest/v1/{table}?id=eq.{row_id}',
+                          headers=_sb_headers(secret=True),
+                          json=data, timeout=10)
+        return r.status_code in (200, 204)
+    except Exception: return False
+
+def _sb_delete(table, row_id):
+    try:
+        r = requests.delete(f'{SUPABASE_URL}/rest/v1/{table}?id=eq.{row_id}',
+                           headers=_sb_headers(secret=True), timeout=10)
+        return r.status_code in (200, 204)
+    except Exception: return False
+
+
 # ── CACHÉ EN MEMORIA CON TTL DIFERENCIADO ────────────────────────
 _cache      = {}
 _cache_lock = threading.Lock()
@@ -1673,6 +1718,20 @@ def clear_cache():
         count=len(_cache); _cache.clear()
     return jsonify({'cleared':True,'entries_removed':count,'message':f'{count} entradas eliminadas'})
 
+@app.route('/clear_ticker_cache/<ticker>')
+def clear_ticker_cache(ticker):
+    """Limpia solo el caché del ticker especificado — fuerza datos frescos para ese ticker."""
+    ticker = ticker.upper()
+    with _cache_lock:
+        keys = [k for k in _cache if ticker.lower() in k.lower()
+                and not k.startswith('sec_')   # mantener SEC (cambia poco)
+                and not k.startswith('hist_')  # mantener histórico
+                and not k.startswith('drift_') # mantener drift
+               ]
+        for k in keys:
+            _cache.pop(k, None)
+    return jsonify({'cleared': True, 'ticker': ticker, 'entries_removed': len(keys)})
+
 @app.route('/cache_status')
 def cache_status():
     with _cache_lock:
@@ -1946,6 +2005,147 @@ def debug_analyze(ticker):
         results['8_raw_api'] = {'error': str(e)}
     
     return jsonify(results)
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  TRADES — CRUD COMPLETO CON SUPABASE
+# ═══════════════════════════════════════════════════════════════════
+
+@app.route('/trades', methods=['GET'])
+def get_trades():
+    """Devuelve todas las operaciones ordenadas por fecha desc."""
+    trades = _sb_get('trades', params={'order': 'created_at.desc', 'limit': '500'})
+    return jsonify(trades if isinstance(trades, list) else [])
+
+@app.route('/trades', methods=['POST'])
+def add_trade():
+    """Añade una nueva operación. Guarda también el precio de cierre actual."""
+    data = request.json or {}
+    ticker = (data.get('ticker') or '').upper()
+
+    # Obtener precio de cierre actual para calcular gap mañana
+    close_price = None
+    if ticker:
+        try:
+            tk = yf.Ticker(ticker)
+            hist = tk.history(period='1d')
+            if not hist.empty:
+                close_price = round(float(hist['Close'].iloc[-1]), 4)
+        except Exception:
+            pass
+
+    trade = {
+        'ticker':       ticker,
+        'prediction':   data.get('prediction'),
+        'probability':  data.get('probability'),
+        'signal_level': data.get('signal_level'),
+        'vix':          data.get('vix'),
+        'futures_dir':  data.get('futures_dir'),
+        'gap_real':     data.get('gap_real'),
+        'close_price':  close_price,
+        'notes':        data.get('notes'),
+        'result':       data.get('result', 'pending'),
+        'date':         data.get('date'),
+        'dow':          data.get('dow'),
+        'uw':           data.get('uw'),
+    }
+    result = _sb_post('trades', trade)
+    if result:
+        row = result[0] if isinstance(result, list) else result
+        return jsonify({'ok': True, 'trade': row}), 201
+    return jsonify({'ok': False, 'error': 'Error guardando en Supabase'}), 500
+
+@app.route('/trades/<int:trade_id>', methods=['PATCH'])
+def update_trade(trade_id):
+    """Actualiza campos de una operación (resultado, gap_real, notas)."""
+    data = request.json or {}
+    # Solo permitir campos seguros
+    allowed = {'result', 'gap_real', 'notes', 'prediction', 'signal_level', 'vix', 'futures_dir'}
+    update = {k: v for k, v in data.items() if k in allowed}
+    if not update:
+        return jsonify({'ok': False, 'error': 'Sin campos válidos'}), 400
+    ok = _sb_patch('trades', trade_id, update)
+    return jsonify({'ok': ok})
+
+@app.route('/trades/<int:trade_id>', methods=['DELETE'])
+def delete_trade(trade_id):
+    """Elimina una operación."""
+    ok = _sb_delete('trades', trade_id)
+    return jsonify({'ok': ok})
+
+@app.route('/trades/import', methods=['POST'])
+def import_trades():
+    """Importa operaciones desde localStorage (migración inicial)."""
+    trades_list = request.json or []
+    if not isinstance(trades_list, list):
+        return jsonify({'ok': False}), 400
+    imported = 0
+    for t in trades_list:
+        ticker = (t.get('ticker') or '').upper()
+        if not ticker: continue
+        trade = {
+            'ticker':       ticker,
+            'prediction':   t.get('prediction'),
+            'probability':  t.get('probability'),
+            'signal_level': t.get('signal_level'),
+            'vix':          t.get('vix'),
+            'futures_dir':  t.get('futures_dir'),
+            'gap_real':     t.get('gap_real'),
+            'close_price':  t.get('close_price'),
+            'notes':        t.get('notes'),
+            'result':       t.get('result', 'pending'),
+            'date':         t.get('date'),
+            'dow':          t.get('dow'),
+            'uw':           t.get('uw'),
+        }
+        if _sb_post('trades', trade):
+            imported += 1
+    return jsonify({'ok': True, 'imported': imported})
+
+@app.route('/trades/calc_gaps', methods=['POST'])
+def calc_gaps():
+    """
+    Calcula el gap_real automáticamente para operaciones pending sin gap.
+    Usa: (precio_apertura_hoy - close_price_guardado) / close_price * 100
+    Se llama a las 15:35 del día siguiente al registro.
+    """
+    pending = _sb_get('trades', params={
+        'result': 'eq.pending',
+        'gap_real': 'is.null',
+        'close_price': 'not.is.null',
+        'order': 'created_at.desc',
+        'limit': '20'
+    })
+
+    if not isinstance(pending, list) or not pending:
+        return jsonify({'ok': True, 'updated': 0, 'message': 'No hay operaciones pendientes sin gap'})
+
+    updated = 0
+    details = []
+    for trade in pending:
+        ticker      = (trade.get('ticker') or '').upper()
+        close_price = trade.get('close_price')
+        trade_id    = trade.get('id')
+        if not ticker or not close_price or not trade_id:
+            continue
+        try:
+            tk = yf.Ticker(ticker)
+            hist = tk.history(period='2d', interval='1d')
+            if hist.empty or len(hist) < 1:
+                continue
+            # Precio de apertura del día más reciente
+            open_price = float(hist['Open'].iloc[-1])
+            gap_pct    = round((open_price - float(close_price)) / float(close_price) * 100, 2)
+
+            ok = _sb_patch('trades', trade_id, {'gap_real': gap_pct})
+            if ok:
+                updated += 1
+                details.append({'ticker': ticker, 'close': close_price,
+                                'open': open_price, 'gap_pct': gap_pct})
+        except Exception as e:
+            details.append({'ticker': ticker, 'error': str(e)})
+
+    return jsonify({'ok': True, 'updated': updated, 'details': details})
 
 
 if __name__ == '__main__':

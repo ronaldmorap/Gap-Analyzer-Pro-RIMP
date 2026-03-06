@@ -262,7 +262,8 @@
             <p>Introduce el ticker para ver si vale la pena operar mañana</p>
             <div class="search-row">
                 <input type="text" class="search-input" id="tickerInput" placeholder="AAPL" maxlength="5">
-                <button class="btn btn-dark" onclick="analyzeStock()">Analizar</button>
+                <button class="btn btn-dark" onclick="analyzeStock(false)">Analizar</button>
+                <button class="btn btn-dark" id="refreshBtn" onclick="analyzeStock(true)" style="display:none;background:var(--amber);color:#000;font-size:11px" title="Borra el caché y fuerza datos frescos">🔄 Actualizar</button>
             </div>
         </div>
         <div class="loading" id="loadingSearch">Analizando mercado…</div>
@@ -275,6 +276,7 @@
                     <div class="res-ticker" id="resTicker"></div>
                     <div class="res-price"  id="resPrice"></div>
                     <div class="res-meta">Probabilidad de gap mañana</div>
+                    <div id="resTimestamp" style="font-size:10px;color:var(--muted);margin-top:2px"></div>
                     <div id="resEarnings"></div>
                 </div>
                 <div class="res-prob-wrap">
@@ -370,9 +372,13 @@
         <div class="sec-hdr">
             <h2>Registro de Operaciones</h2>
             <div class="sec-line"></div>
-            <span class="ls-badge">💾 Local</span>
+            <span class="ls-badge">☁️ Nube</span>
             <div class="sec-line"></div>
             <div class="sec-tag" id="accBadge">Sin datos</div>
+            <div style="display:flex;gap:6px;margin-left:auto;flex-wrap:wrap">
+                <button class="btn btn-dark" onclick="calcGapsAuto()" style="font-size:10px;padding:5px 10px" title="Calcula gap real usando precio apertura de hoy">📊 Gaps de hoy</button>
+                <button class="btn btn-dark" id="migrateBtn" onclick="migrateLocalStorage()" style="font-size:10px;padding:5px 10px;background:var(--amber);color:#000" title="Importa operaciones del navegador a la nube">☁️ Migrar</button>
+            </div>
         </div>
 
         <!-- Stats principales -->
@@ -436,7 +442,7 @@
                 <input type="number" class="form-input" id="trGapReal" placeholder="Gap real %" style="width:100px" step="0.01" title="% de diferencia entre el precio de apertura y el cierre anterior. Ej: si cerró a $100 y abrió a $101.5 → escribe 1.5">
                 <input type="text"   class="form-input" id="trNotes"  placeholder="Notas" style="flex:1;min-width:100px">
                 <span style="font-size:10px;color:var(--muted);align-self:center">❓ Gap real = % apertura vs cierre anterior (lo sabes al día siguiente)</span>
-                <button class="btn btn-dark" onclick="addTrade()" style="padding:8px 18px;font-size:12px">+ Añadir</button>
+                <button class="btn btn-dark" id="addTradeBtn" onclick="addTrade()" style="padding:8px 18px;font-size:12px">+ Añadir</button>
             </div>
         </div>
 
@@ -449,8 +455,54 @@
 <script>
 /* ─── LOCALSTORAGE TRADES ─── */
 const TRADES_KEY = 'gap_analyzer_trades_v1';
-function loadTradesLS(){try{return JSON.parse(localStorage.getItem(TRADES_KEY))||[];}catch{return[];}}
-function saveTradesLS(t){localStorage.setItem(TRADES_KEY,JSON.stringify(t));}
+// ── TRADES API (Supabase via backend) ────────────────────────────
+async function loadTrades() {
+    try {
+        const r = await fetch('/trades');
+        return await r.json();
+    } catch { return []; }
+}
+
+async function saveTrade(trade) {
+    const r = await fetch('/trades', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify(trade)
+    });
+    const d = await r.json();
+    return d.trade || null;
+}
+
+async function updateTrade(id, fields) {
+    await fetch(`/trades/${id}`, {
+        method: 'PATCH',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify(fields)
+    });
+}
+
+async function deleteTrade(id) {
+    await fetch(`/trades/${id}`, { method: 'DELETE' });
+}
+
+// Migración única desde localStorage a Supabase
+async function migrateLocalStorage() {
+    const key = 'gap_trades_v2';
+    const local = JSON.parse(localStorage.getItem(key) || '[]');
+    if (!local.length) return;
+    try {
+        const r = await fetch('/trades/import', {
+            method: 'POST',
+            headers: {'Content-Type':'application/json'},
+            body: JSON.stringify(local)
+        });
+        const d = await r.json();
+        if (d.ok && d.imported > 0) {
+            localStorage.removeItem(key);
+            console.log(`✅ Migradas ${d.imported} operaciones a Supabase`);
+        }
+    } catch(e) { console.error('Error migrando:', e); }
+}
 
 let currentData = null;
 
@@ -500,19 +552,30 @@ async function loadEarnings(){
 }
 
 /* ─── ANALIZAR ─── */
-async function analyzeStock(){
+async function analyzeStock(force=false){
     const ticker=document.getElementById('tickerInput').value.trim().toUpperCase();
     if(!ticker) return;
     document.getElementById('loadingSearch').style.display='block';
     document.getElementById('resultCard').style.display='none';
+    // Si force=true, limpiamos caché del servidor antes de pedir
+    if(force){
+        try{ await fetch(`/clear_ticker_cache/${ticker}`); }catch(e){}
+    }
     try{
         const data=await(await fetch('/analyze',{
             method:'POST',headers:{'Content-Type':'application/json'},
             body:JSON.stringify({ticker})
         })).json();
         currentData=data;
+        // Guardar timestamp del análisis
+        const now=new Date();
+        const ts=now.toLocaleTimeString('es-ES',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+        const tsEl=document.getElementById('resTimestamp');
+        if(tsEl) tsEl.innerHTML=`⏱ Datos de las ${ts}${force?' <span style="color:var(--amber)">· forzado fresco</span>':'· <span style="color:var(--muted)">usa 🔄 para actualizar</span>'}`;
         renderResult(data);
         startAutoRefresh(data.ticker);
+        // Mostrar botón de actualización forzada
+        document.getElementById('refreshBtn').style.display='inline-block';
     }catch(e){alert('Error al analizar.');}
     document.getElementById('loadingSearch').style.display='none';
 }
@@ -849,16 +912,14 @@ function registerTrade(direction){
     }
 }
 
-function addTrade(){
+async function addTrade(){
     const ticker=document.getElementById('trTicker').value.trim().toUpperCase();
     if(!ticker){alert('Introduce el ticker');return;}
-    const trades=loadTradesLS();
-    const id=(trades.length?Math.max(...trades.map(t=>t.id)):0)+1;
     const now=new Date();
     const dias=['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
     const vixVal=parseFloat(document.getElementById('trVix').value)||null;
-    trades.push({
-        id, ticker,
+    const trade = {
+        ticker,
         prediction:   document.getElementById('trPred').value,
         probability:  parseInt(document.getElementById('trProb').value)||0,
         signal_level: document.getElementById('trSignal').value,
@@ -870,30 +931,28 @@ function addTrade(){
         date:         now.toLocaleString('es-ES',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'}),
         dow:          dias[now.getDay()],
         uw:           window._pendingUW || null,
-    });
+    };
     window._pendingUW = null;
-    saveTradesLS(trades);
-    document.getElementById('trTicker').value='';
-    document.getElementById('trProb').value='';
-    document.getElementById('trVix').value='';
-    document.getElementById('trGapReal').value='';
-    document.getElementById('trFutures').value='';
-    document.getElementById('trNotes').value='';
-    renderTrades();
+    const btn = document.getElementById('addTradeBtn');
+    if(btn){ btn.disabled=true; btn.textContent='Guardando…'; }
+    await saveTrade(trade);
+    if(btn){ btn.disabled=false; btn.textContent='Registrar operación'; }
+    // Limpiar campos
+    ['trTicker','trProb','trVix','trGapReal','trNotes'].forEach(id=>{
+        const el=document.getElementById(id); if(el) el.value='';
+    });
+    await renderTrades();
 }
 
-function updateTradeResult(id,result){
-    const trades=loadTradesLS();
-    const t=trades.find(x=>x.id===id);
-    if(t) t.result=result;
-    saveTradesLS(trades);
-    renderTrades();
+async function updateTradeResult(id,result){
+    await updateTrade(id, {result});
+    await renderTrades();
 }
 
-function deleteTrade(id){
+async function deleteTradeById(id){
     if(!confirm('¿Eliminar esta operación?')) return;
-    saveTradesLS(loadTradesLS().filter(x=>x.id!==id));
-    renderTrades();
+    await deleteTrade(id);
+    await renderTrades();
 }
 
 function accStr(w,c){
@@ -903,8 +962,9 @@ function accStr(w,c){
     return `<span style="color:${col};font-weight:600">${p}%</span> (${w}/${c})`;
 }
 
-function editGap(id){
-    const trades = loadTradesLS();
+async function editGap(id){
+    // Load current trade from server
+    const trades = await loadTrades();
     const t = trades.find(x => x.id === id);
     if (!t) return;
     const current = t.gap_real != null ? t.gap_real : '';
@@ -916,16 +976,15 @@ function editGap(id){
         `Valor actual: ${current !== '' ? current + '%' : 'sin registrar'}`,
         current
     );
-    if (val === null) return; // cancelado
+    if (val === null) return;
     const num = parseFloat(val);
     if (isNaN(num)) { alert('Introduce un número válido'); return; }
-    t.gap_real = num;
-    saveTradesLS(trades);
-    renderTrades();
+    await updateTrade(id, {gap_real: num});
+    await renderTrades();
 }
 
-function renderTrades(){
-    const trades=loadTradesLS();
+async function renderTrades(){
+    const trades = await loadTrades();
     const closed=trades.filter(t=>t.result!=='pending');
     const wins=trades.filter(t=>t.result==='win').length;
     const losses=trades.filter(t=>t.result==='loss').length;
@@ -1051,7 +1110,7 @@ function renderTrades(){
                 <div class="tr-info" style="margin-top:3px">${t.dow||''} ${t.date}${t.notes?' · '+t.notes:''}</div>
                 <div style="margin-top:4px">${vixTag}${futTag}${gapTag}${uwTag}</div>
             </div>
-            <div class="tr-actions">${rp}${ab}${gapBtn}<button class="btn-icon" onclick="deleteTrade(${t.id})" title="Eliminar">✕</button></div>`;
+            <div class="tr-actions">${rp}${ab}${gapBtn}<button class="btn-icon" onclick="deleteTradeById(${t.id})" title="Eliminar">✕</button></div>`;
         list.appendChild(el);
     });
 }
@@ -1093,6 +1152,23 @@ loadEarnings();
 loadDashboard();
 renderTrades();
 checkUWMode();
+migrateLocalStorage(); // migración automática única si hay datos en localStorage
+
+async function calcGapsAuto(){
+    const btn = event.target;
+    btn.disabled=true; btn.textContent='Calculando…';
+    try{
+        const r = await fetch('/trades/calc_gaps', {method:'POST'});
+        const d = await r.json();
+        if(d.updated > 0){
+            alert(`✅ Gap calculado para ${d.updated} operación${d.updated>1?'es':''}`);
+            await renderTrades();
+        } else {
+            alert('No hay operaciones pendientes con precio de cierre guardado, o el mercado aún no ha abierto hoy.');
+        }
+    }catch(e){ alert('Error calculando gaps'); }
+    btn.disabled=false; btn.textContent='📊 Calcular gaps de hoy';
+}
 
 // Auto-refresco futuros y señales — cada 30s si hay análisis activo
 let _autoRefreshTicker = null;
