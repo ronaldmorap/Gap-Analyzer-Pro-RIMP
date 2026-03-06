@@ -2110,14 +2110,28 @@ def calc_gaps():
     """
     Calcula el gap_real automáticamente para operaciones pending sin gap.
     Usa: (precio_apertura_hoy - close_price_guardado) / close_price * 100
-    Se llama a las 15:35 del día siguiente al registro.
+    Solo funciona después de las 14:30 UTC (15:30 hora española) — cuando el mercado ya abrió.
     """
+    # Validar que el mercado ya abrió hoy (NYSE abre 14:30 UTC)
+    now_utc    = datetime.utcnow()
+    market_open_utc = now_utc.replace(hour=14, minute=35, second=0, microsecond=0)
+    # Si es fin de semana o antes de apertura, bloquear
+    weekday = now_utc.weekday()  # 0=lunes, 6=domingo
+    if weekday >= 5:
+        return jsonify({'ok': False, 'updated': 0,
+                       'message': 'El mercado no abre los fines de semana. Usa el botón el lunes después de las 15:35h.'})
+    if now_utc < market_open_utc:
+        hora_esp = now_utc.hour + 1  # UTC+1 en invierno, aproximado
+        faltan   = int((market_open_utc - now_utc).total_seconds() / 60)
+        return jsonify({'ok': False, 'updated': 0,
+                       'message': f'El mercado aún no ha abierto. Son las ~{hora_esp}:{now_utc.minute:02d}h España. Faltan ~{faltan} minutos para la apertura (15:30h). Vuelve después de las 15:35h.'})
+
     pending = _sb_get('trades', params={
-        'result': 'eq.pending',
-        'gap_real': 'is.null',
+        'result':      'eq.pending',
+        'gap_real':    'is.null',
         'close_price': 'not.is.null',
-        'order': 'created_at.desc',
-        'limit': '20'
+        'order':       'created_at.desc',
+        'limit':       '20'
     })
 
     if not isinstance(pending, list) or not pending:
@@ -2129,14 +2143,23 @@ def calc_gaps():
         ticker      = (trade.get('ticker') or '').upper()
         close_price = trade.get('close_price')
         trade_id    = trade.get('id')
+        trade_date  = (trade.get('created_at') or '')[:10]  # YYYY-MM-DD
         if not ticker or not close_price or not trade_id:
             continue
         try:
-            tk = yf.Ticker(ticker)
+            tk   = yf.Ticker(ticker)
             hist = tk.history(period='2d', interval='1d')
             if hist.empty or len(hist) < 1:
                 continue
-            # Precio de apertura del día más reciente
+
+            # Verificar que la apertura es de HOY, no de ayer
+            last_date = hist.index[-1].strftime('%Y-%m-%d')
+            today_str = now_utc.strftime('%Y-%m-%d')
+            if last_date != today_str:
+                details.append({'ticker': ticker, 'skip': True,
+                               'reason': f'Datos de {last_date}, no de hoy ({today_str}). Mercado aún no actualizó.'})
+                continue
+
             open_price = float(hist['Open'].iloc[-1])
             gap_pct    = round((open_price - float(close_price)) / float(close_price) * 100, 2)
 
@@ -2144,7 +2167,7 @@ def calc_gaps():
             if ok:
                 updated += 1
                 details.append({'ticker': ticker, 'close': close_price,
-                                'open': open_price, 'gap_pct': gap_pct})
+                               'open': open_price, 'gap_pct': gap_pct, 'date': last_date})
         except Exception as e:
             details.append({'ticker': ticker, 'error': str(e)})
 

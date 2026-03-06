@@ -1190,58 +1190,15 @@ async function calcGapsAuto(){
     try{
         const r = await fetch('/trades/calc_gaps', {method:'POST'});
         const d = await r.json();
-        if(d.updated > 0){
-            alert(`✅ Gap calculado para ${d.updated} operación${d.updated>1?'es':''}`);
+        if(!d.ok){
+            alert('⚠️ ' + d.message);
+        } else if(d.updated > 0){
+            alert('✅ Gap calculado para ' + d.updated + ' operación' + (d.updated>1?'es':''));
             await renderTrades();
         } else {
-            alert('No hay operaciones pendientes con precio de cierre guardado, o el mercado aún no ha abierto hoy.');
+            alert(d.message || 'No hay operaciones pendientes sin gap.');
         }
     }catch(e){ alert('Error calculando gaps'); }
-    btn.disabled=false; btn.textContent='📊 Calcular gaps de hoy';
+    btn.disabled=false; btn.textContent='📊 Gaps de hoy';
 }
 
-// Auto-refresco futuros y señales — cada 30s si hay análisis activo
-let _autoRefreshTicker = null;
-let _autoRefreshInterval = null;
-
-function startAutoRefresh(ticker){
-    _autoRefreshTicker = ticker;
-    if(_autoRefreshInterval) clearInterval(_autoRefreshInterval);
-    _autoRefreshInterval = setInterval(()=>{
-        if(!_autoRefreshTicker) return;
-        // Refrescar solo futuros y datos rápidos sin recargar todo
-        fetch('/analyze', {
-            method:'POST',
-            headers:{'Content-Type':'application/json'},
-            body: JSON.stringify({ticker: _autoRefreshTicker})
-        })
-        .then(r=>r.json())
-        .then(d=>{
-            if(!d || d.error) return;
-            // Actualizar solo la tarjeta de futuros
-            const futEl = document.getElementById('futuresCard');
-            if(futEl && d.futures_signal){
-                futEl.querySelector('.dc-val').textContent = d.futures_signal;
-            }
-            // Actualizar VIX
-            const vixEl = document.getElementById('vixCard');
-            if(vixEl && d.vix_level){
-                const vix = d.vix_level;
-                vixEl.querySelector('.dc-val').textContent =
-                    `${vix} ${vix>=30?'⚠️ Pánico':vix>=25?'⚠️ Nervioso':'✅ Tranquilo'}`;
-            }
-            // Actualizar timestamp de refresco
-            const tsEl = document.getElementById('autoRefreshTs');
-            if(tsEl) tsEl.textContent = `↻ ${new Date().toLocaleTimeString('es-ES',{hour:'2-digit',minute:'2-digit',second:'2-digit'})}`;
-        })
-        .catch(()=>{});
-    }, 30000); // cada 30 segundos
-}
-
-function stopAutoRefresh(){
-    _autoRefreshTicker = null;
-    if(_autoRefreshInterval){ clearInterval(_autoRefreshInterval); _autoRefreshInterval=null; }
-}
-</script>
-</body>
-</html>
