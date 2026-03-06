@@ -555,6 +555,29 @@ async function loadEarnings(){
 }
 
 /* ─── ANALIZAR ─── */
+
+// ── AUTO REFRESH ─────────────────────────────────────────────────
+let _autoRefreshTimer = null;
+let _autoRefreshTicker = null;
+
+function startAutoRefresh(ticker) {
+    // Cancelar timer anterior si existe
+    if (_autoRefreshTimer) clearInterval(_autoRefreshTimer);
+    _autoRefreshTicker = ticker;
+    // Actualizar timestamp cada segundo
+    _autoRefreshTimer = setInterval(() => {
+        const el = document.getElementById('autoRefreshTs');
+        if (el && _autoRefreshTicker) {
+            const now = new Date();
+            el.textContent = 'Actualizado: ' + now.toLocaleTimeString('es-ES', {hour:'2-digit', minute:'2-digit', second:'2-digit'});
+        }
+    }, 1000);
+}
+
+function stopAutoRefresh() {
+    if (_autoRefreshTimer) { clearInterval(_autoRefreshTimer); _autoRefreshTimer = null; }
+}
+
 async function analyzeStock(force=false){
     const ticker=document.getElementById('tickerInput').value.trim().toUpperCase();
     if(!ticker) return;
