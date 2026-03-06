@@ -924,22 +924,46 @@ function registerTrade(direction){
     else if(futSig.includes('bajista'))    document.getElementById('trFutures').value='bajista';
     else if(futSig.includes('alcista'))    document.getElementById('trFutures').value='alcista';
     else                                   document.getElementById('trFutures').value='neutral';
-    // Guardar snapshot UW si está disponible
-    if(currentData.uw_data && currentData.uw_data.uw_total_score !== undefined) {
-        window._pendingUW = {
-            uw_score:      currentData.uw_data.uw_total_score,
-            uw_call_k:     currentData.uw_data.call_premium_k,
-            uw_put_k:      currentData.uw_data.put_premium_k,
-            uw_tide_pct:   currentData.uw_data.tide_call_pct,
-            uw_dp_vol:     currentData.uw_data.dp_volume_m,
-            uw_max_pain:   currentData.uw_data.max_pain,
-            uw_oi_ratio:   currentData.uw_data.oi_ratio,
-            uw_congress_b: currentData.uw_data.congress_buys,
-            uw_congress_s: currentData.uw_data.congress_sells,
-        };
-    } else {
-        window._pendingUW = null;
-    }
+    // Snapshot completo del análisis para el tracker
+    const d = currentData;
+    const uw = d.uw_data || {};
+    window._pendingUW = Object.keys(uw).length ? {
+        uw_score:      uw.uw_total_score,
+        uw_call_k:     uw.call_premium_k,
+        uw_put_k:      uw.put_premium_k,
+        uw_tide_pct:   uw.tide_call_pct,
+        uw_dp_vol:     uw.dp_volume_m,
+        uw_max_pain:   uw.max_pain,
+        uw_oi_ratio:   uw.oi_ratio,
+        uw_congress_b: uw.congress_buys,
+        uw_congress_s: uw.congress_sells,
+    } : null;
+
+    // Snapshot contexto mercado
+    const ftmo = d.ftmo_signal || {};
+    window._pendingContext = {
+        // Semáforo
+        semaforo_color:   ftmo.color,
+        ftmo_titulo:      ftmo.titulo,
+        ftmo_n_favor:     (ftmo.favor  || []).length,
+        ftmo_n_contra:    (ftmo.contra || []).length,
+        ftmo_contra_list: (ftmo.contra || []).slice(0, 5).join(' | '),
+        // Mercado
+        rsi_value:        d.rsi_value,
+        vix:              d.vix_level,
+        is_fakeout:       d.is_fakeout || false,
+        futures_change:   d.futures_change,
+        drift_trend:      d.drift_trend,
+        hist_prob:        d.overnight_drift ? Math.round(d.overnight_drift) : null,
+        rvol:             (d.volume || {}).rvol,
+        // Noticias
+        macro_event:      d.macro_event || false,
+        macro_title:      d.macro_reason,
+        macro_date:       d.macro_date,
+        macro_sent:       d.macro_sent,
+        // Earnings
+        earnings_days:    (d.earnings || {}).days_to_earnings,
+    };
     // Scroll al formulario de nueva operación, no al final de la página
     const addForm = document.querySelector('.add-trade');
     if (addForm) {

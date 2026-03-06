@@ -2035,22 +2035,55 @@ def add_trade():
             pass
 
     trade = {
+        # ── Identificación ──────────────────────────────────────────
         'ticker':             ticker,
-        'prediction':         data.get('prediction'),
-        'system_prediction':  data.get('system_prediction'),
-        'system_probability': data.get('system_probability'),
-        'contra_signal':      bool(data.get('contra_signal', False)),
-        'probability':        data.get('probability'),
-        'signal_level':       data.get('signal_level'),
-        'vix':                data.get('vix'),
-        'futures_dir':        data.get('futures_dir'),
-        'gap_real':           data.get('gap_real'),
-        'close_price':        close_price,
-        'notes':              data.get('notes'),
-        'result':             data.get('result', 'pending'),
         'date':               data.get('date'),
         'dow':                data.get('dow'),
+
+        # ── Predicción ──────────────────────────────────────────────
+        'prediction':         data.get('prediction'),
+        'system_prediction':  data.get('system_prediction'),
+        'probability':        data.get('probability'),
+        'system_probability': data.get('system_probability'),
+        'contra_signal':      bool(data.get('contra_signal', False)),
+        'signal_level':       data.get('signal_level'),
+
+        # ── Semáforo FTMO ────────────────────────────────────────────
+        'semaforo_color':     data.get('semaforo_color'),        # green/amber/red
+        'ftmo_titulo':        data.get('ftmo_titulo'),           # título del semáforo
+        'ftmo_n_favor':       data.get('ftmo_n_favor'),          # nº señales a favor
+        'ftmo_n_contra':      data.get('ftmo_n_contra'),         # nº señales en contra
+        'ftmo_contra_list':   data.get('ftmo_contra_list'),      # lista señales en contra
+
+        # ── Contexto mercado ─────────────────────────────────────────
+        'rsi_value':          data.get('rsi_value'),             # RSI exacto
+        'vix':                data.get('vix'),
+        'is_fakeout':         bool(data.get('is_fakeout', False)),
+        'futures_dir':        data.get('futures_dir'),
+        'futures_change':     data.get('futures_change'),        # % cambio futuros
+        'drift_trend':        data.get('drift_trend'),           # alcista/bajista/neutral
+        'hist_prob':          data.get('hist_prob'),             # prob. histórica pura
+        'rvol':               data.get('rvol'),                  # volumen relativo
+
+        # ── Noticias macro ───────────────────────────────────────────
+        'macro_event':        bool(data.get('macro_event', False)),
+        'macro_title':        data.get('macro_title'),           # Fed, IPC, NFP...
+        'macro_date':         data.get('macro_date'),
+        'macro_sent':         data.get('macro_sent'),            # positivo/negativo/neutro
+
+        # ── Earnings ─────────────────────────────────────────────────
+        'earnings_days':      data.get('earnings_days'),         # días hasta earnings
+
+        # ── Gap resultado ────────────────────────────────────────────
+        'gap_real':           data.get('gap_real'),
+        'close_price':        close_price,
+        'result':             data.get('result', 'pending'),
+
+        # ── UW snapshot ──────────────────────────────────────────────
         'uw':                 data.get('uw'),
+
+        # ── Notas ────────────────────────────────────────────────────
+        'notes':              data.get('notes'),
     }
     result = _sb_post('trades', trade)
     if result:
