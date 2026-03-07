@@ -941,6 +941,9 @@ function registerTrade(direction){
 
     // Snapshot contexto mercado
     const ftmo = d.ftmo_signal || {};
+    console.log('DEBUG currentData keys:', Object.keys(d));
+    console.log('DEBUG ftmo:', ftmo);
+    console.log('DEBUG rsi_value:', d.rsi_value, 'vix_level:', d.vix_level, 'drift_trend:', d.drift_trend);
     window._pendingContext = {
         // Semáforo
         semaforo_color:   ftmo.color,
@@ -1186,12 +1189,29 @@ async function renderTrades(){
         const ab=t.result==='pending'
             ?`<button class="btn-green btn" style="padding:4px 9px;font-size:11px" onclick="updateTradeResult(${t.id},'win')" title="Marcar acierto">✓</button>
               <button class="btn-red btn"   style="padding:4px 9px;font-size:11px" onclick="updateTradeResult(${t.id},'loss')" title="Marcar fallo">✗</button>`:'';
+        // Build detail panel
+        const semIcon = t.semaforo_color==='green'?'🟢':t.semaforo_color==='amber'?'🟡':t.semaforo_color==='red'?'🔴':'';
+        const rsiIcon = !t.rsi_value?'':t.rsi_value>=75?' 🔴':t.rsi_value<=25?' ⚠️':' ✅';
+        const rsiStr  = t.rsi_value ? 'RSI '+t.rsi_value+rsiIcon : '';
+        const rvolStr = t.rvol ? 'RVOL '+t.rvol+'x' : '';
+        const driftStr = t.drift_trend ? 'Drift '+t.drift_trend : '';
+        const macroStr = t.macro_event ? (t.macro_title||'Macro') : '';
+        const earnStr  = t.earnings_days!=null ? 'Earnings '+t.earnings_days+'d' : '';
+        const fkStr    = t.is_fakeout ? 'Fakeout' : '';
+        const semStr   = semIcon ? semIcon+' '+( t.ftmo_n_favor||0)+'✅ '+(t.ftmo_n_contra||0)+'⚠️' : '';
+        const pill = v => v ? '<span style="background:var(--bg);border:1px solid var(--border);padding:2px 6px;border-radius:4px;font-size:10px;margin:2px">'+v+'</span>' : '';
+        const contraRows = t.ftmo_contra_list ? t.ftmo_contra_list.split(' | ').slice(0,4).map(s=>'<div style="font-size:10px;color:var(--red);margin-top:2px">⚠️ '+s+'</div>').join('') : '';
         el.innerHTML=`
-            <div class="tr-ticker">${t.ticker}</div>
+            <div class="tr-ticker" onclick="toggleDetail(${t.id})" style="cursor:pointer">${t.ticker} <span style="font-size:9px;color:var(--muted)" id="arr-${t.id}">▼</span></div>
             <div class="tr-meta">
-                <div class="tr-pred ${pc}">${pi} ${t.prediction} · ${t.probability}% · ${sigTag}</div>
+                <div class="tr-pred ${pc}" onclick="toggleDetail(${t.id})" style="cursor:pointer">${pi} ${t.prediction} · ${t.probability}% · ${sigTag}</div>
                 <div class="tr-info" style="margin-top:3px">${t.dow||''} ${t.date}${t.notes?' · '+t.notes:''}</div>
                 <div style="margin-top:4px">${contraTag}${vixTag}${futTag}${gapTag}${uwTag}</div>
+                <div id="det-${t.id}" style="display:none;margin-top:8px;padding:8px;background:var(--bg2);border-radius:8px">
+                    ${semStr?'<div style="font-size:11px;font-weight:600;margin-bottom:6px">'+semStr+'</div>':''}
+                    <div style="display:flex;flex-wrap:wrap">${pill(rsiStr)}${pill(rvolStr)}${pill(driftStr)}${pill(earnStr)}${macroStr?'<span style="background:var(--amber-bg);border:1px solid var(--amber-b);color:var(--amber);padding:2px 6px;border-radius:4px;font-size:10px;margin:2px">⚠️ '+macroStr+'</span>':''}${fkStr?'<span style="background:var(--red-bg);border:1px solid var(--red-b);color:var(--red);padding:2px 6px;border-radius:4px;font-size:10px;margin:2px">⚠️ Fakeout</span>':''}</div>
+                    ${contraRows?'<div style="margin-top:6px;padding-top:6px;border-top:1px solid var(--border)">'+contraRows+'</div>':''}
+                </div>
             </div>
             <div class="tr-actions">${rp}${ab}${gapBtn}<button class="btn-icon" onclick="deleteTradeById(${t.id})" title="Eliminar">✕</button></div>`;
         list.appendChild(el);
@@ -1258,6 +1278,15 @@ async function calcGapsAuto(){
         }
     }catch(e){ alert('Error calculando gaps'); }
     btn.disabled=false; btn.textContent='📊 Gaps de hoy';
+}
+
+function toggleDetail(id) {
+    const el = document.getElementById('det-' + id);
+    const arr = document.getElementById('arr-' + id);
+    if (!el) return;
+    const open = el.style.display !== 'none';
+    el.style.display = open ? 'none' : 'block';
+    if (arr) arr.textContent = open ? '▼' : '▲';
 }
 
 </script>
