@@ -2054,6 +2054,8 @@ def add_trade():
         'ftmo_n_favor':       data.get('ftmo_n_favor'),          # nº señales a favor
         'ftmo_n_contra':      data.get('ftmo_n_contra'),         # nº señales en contra
         'ftmo_contra_list':   data.get('ftmo_contra_list'),      # lista señales en contra
+        'ftmo_favor_list':    data.get('ftmo_favor_list'),       # lista señales a favor
+        'macro_events':       data.get('macro_events', []),      # array de todos los eventos macro
 
         # ── Contexto mercado ─────────────────────────────────────────
         'rsi_value':          data.get('rsi_value'),             # RSI exacto

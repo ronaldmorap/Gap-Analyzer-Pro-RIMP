@@ -950,7 +950,8 @@ function registerTrade(direction){
         ftmo_titulo:      ftmo.titulo,
         ftmo_n_favor:     (ftmo.favor  || []).length,
         ftmo_n_contra:    (ftmo.contra || []).length,
-        ftmo_contra_list: (ftmo.contra || []).slice(0, 5).join(' | '),
+        ftmo_contra_list: (ftmo.contra || []).slice(0, 8).join(' | '),
+        ftmo_favor_list:  (ftmo.favor  || []).slice(0, 8).join(' | '),
         // Mercado
         rsi_value:        d.rsi_value,
         vix:              d.vix_level,
@@ -959,11 +960,12 @@ function registerTrade(direction){
         drift_trend:      d.drift_trend,
         hist_prob:        d.overnight_drift ? Math.round(d.overnight_drift) : null,
         rvol:             (d.volume || {}).rvol,
-        // Noticias
+        // Noticias — guardar evento principal + array completo si hay varios
         macro_event:      d.macro_event || false,
         macro_title:      d.macro_reason,
         macro_date:       d.macro_date,
         macro_sent:       d.macro_sent,
+        macro_events:     d.macro_events || (d.macro_event ? [{title: d.macro_reason, date: d.macro_date, sent: d.macro_sent}] : []),
         // Earnings
         earnings_days:    (d.earnings || {}).days_to_earnings,
     };
@@ -1001,6 +1003,7 @@ async function addTrade(){
         ftmo_n_favor:       ctx.ftmo_n_favor      ?? null,
         ftmo_n_contra:      ctx.ftmo_n_contra     ?? null,
         ftmo_contra_list:   ctx.ftmo_contra_list  || null,
+        ftmo_favor_list:    ctx.ftmo_favor_list   || null,
         // Mercado
         rsi_value:          ctx.rsi_value         ?? null,
         vix:                ctx.vix               ?? vixVal,
@@ -1015,6 +1018,7 @@ async function addTrade(){
         macro_title:        ctx.macro_title       || null,
         macro_date:         ctx.macro_date        || null,
         macro_sent:         ctx.macro_sent        || null,
+        macro_events:       ctx.macro_events      || [],
         // Earnings
         earnings_days:      ctx.earnings_days     ?? null,
         // Gap y resultado
@@ -1222,7 +1226,11 @@ async function renderTrades(){
         const fkStr    = t.is_fakeout ? 'Fakeout' : '';
         const semStr   = semIcon ? semIcon+' '+( t.ftmo_n_favor||0)+'✅ '+(t.ftmo_n_contra||0)+'⚠️' : '';
         const pill = v => v ? '<span style="background:var(--bg);border:1px solid var(--border);padding:2px 6px;border-radius:4px;font-size:10px;margin:2px">'+v+'</span>' : '';
-        const contraRows = t.ftmo_contra_list ? t.ftmo_contra_list.split(' | ').slice(0,4).map(s=>'<div style="font-size:10px;color:var(--red);margin-top:2px">⚠️ '+s+'</div>').join('') : '';
+        const contraRows = t.ftmo_contra_list ? t.ftmo_contra_list.split(' | ').slice(0,6).map(s=>'<div style="font-size:10px;color:var(--red);margin-top:2px">⚠️ '+s+'</div>').join('') : '';
+        const favorRows  = t.ftmo_favor_list  ? t.ftmo_favor_list.split(' | ').slice(0,6).map(s=>'<div style="font-size:10px;color:var(--green);margin-top:2px">✅ '+s+'</div>').join('') : '';
+        const macroRows  = (t.macro_events && t.macro_events.length > 1)
+            ? t.macro_events.map(m=>'<div style="font-size:10px;color:var(--amber);margin-top:2px">⚠️ '+(m.title||m)+(m.date?' · '+m.date:'')+'</div>').join('')
+            : (t.macro_title ? '<div style="font-size:10px;color:var(--amber);margin-top:2px">⚠️ '+t.macro_title+'</div>' : '');
         el.innerHTML=`
             <div class="tr-ticker" onclick="toggleDetail(${t.id})" style="cursor:pointer">${t.ticker} <span style="font-size:9px;color:var(--muted)" id="arr-${t.id}">▼</span></div>
             <div class="tr-meta">
@@ -1232,7 +1240,9 @@ async function renderTrades(){
                 <div id="det-${t.id}" style="display:none;margin-top:8px;padding:8px;background:var(--bg2);border-radius:8px">
                     ${semStr?'<div style="font-size:11px;font-weight:600;margin-bottom:6px">'+semStr+'</div>':''}
                     <div style="display:flex;flex-wrap:wrap">${pill(rsiStr)}${pill(rvolStr)}${pill(driftStr)}${pill(earnStr)}${macroStr?'<span style="background:var(--amber-bg);border:1px solid var(--amber-b);color:var(--amber);padding:2px 6px;border-radius:4px;font-size:10px;margin:2px">⚠️ '+macroStr+'</span>':''}${fkStr?'<span style="background:var(--red-bg);border:1px solid var(--red-b);color:var(--red);padding:2px 6px;border-radius:4px;font-size:10px;margin:2px">⚠️ Fakeout</span>':''}</div>
-                    ${contraRows?'<div style="margin-top:6px;padding-top:6px;border-top:1px solid var(--border)">'+contraRows+'</div>':''}
+                    ${favorRows?'<div style="margin-top:6px;padding-top:4px;border-top:1px solid var(--border)"><div style="font-size:10px;color:var(--muted);margin-bottom:2px">A favor:</div>'+favorRows+'</div>':''}
+                    ${contraRows?'<div style="margin-top:4px"><div style="font-size:10px;color:var(--muted);margin-bottom:2px">En contra:</div>'+contraRows+'</div>':''}
+                    ${macroRows?'<div style="margin-top:4px"><div style="font-size:10px;color:var(--muted);margin-bottom:2px">Macro:</div>'+macroRows+'</div>':''}
                 </div>
             </div>
             <div class="tr-actions">${rp}${ab}${gapBtn}<button class="btn-icon" onclick="deleteTradeById(${t.id})" title="Eliminar">✕</button></div>`;
