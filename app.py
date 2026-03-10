@@ -4,7 +4,6 @@ import pandas as pd
 from textblob import TextBlob
 import requests
 import os
-import calendar
 from datetime import datetime, timedelta
 import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -165,6 +164,7 @@ GEO_NEGATIVE = ['war', 'invasion', 'tariff', 'sanction', 'embargo',
 # ═══════════════════════════════════════════════════════════════════
 def _news_is_fresh(pub_date_str, max_hours=24):
     try:
+        import calendar
         dt  = parsedate_to_datetime(pub_date_str)
         ts  = calendar.timegm(dt.utctimetuple())
         age = (datetime.utcnow() - datetime.utcfromtimestamp(ts)).total_seconds() / 3600
@@ -437,8 +437,9 @@ def get_whale_signals(ticker):
         try:
             if not pub_str or not pub_str.strip():
                 return 999
+            import calendar as c
             dt = parsedate_to_datetime(pub_str)
-            ts = calendar.timegm(dt.utctimetuple())
+            ts = c.timegm(dt.utctimetuple())
             h  = (datetime.utcnow() - datetime.utcfromtimestamp(ts)).total_seconds() / 3600
             if h < 0 or h > 720:
                 return 999
@@ -651,6 +652,7 @@ def check_high_impact_news(ticker='AAPL'):
                 if kw.upper() in title_up:
                     # Parsear fecha y hora legible
                     try:
+                        import calendar
                         dt  = parsedate_to_datetime(pub)
                         ts  = calendar.timegm(dt.utctimetuple())
                         dtl = datetime.utcfromtimestamp(ts)
@@ -928,21 +930,14 @@ def get_fakeout_detector(ticker):
         hist  = yf.Ticker(ticker).history(period='3mo')
         if hist.empty:
             return False, 'Sin datos', 50
-        close    = hist['Close']
-        gain     = close.diff().clip(lower=0).rolling(14).mean()
-        loss     = (-close.diff().clip(upper=0)).rolling(14).mean()
-        gain_val = gain.iloc[-1]
-        loss_val = loss.iloc[-1]
-        if pd.isna(loss_val) or pd.isna(gain_val) or loss_val == 0:
-            rsi = 50.0
-        else:
-            rsi = float(100 - (100 / (1 + gain_val / loss_val)))
+        close = hist['Close']
+        gain  = close.diff().clip(lower=0).rolling(14).mean()
+        loss  = (-close.diff().clip(upper=0)).rolling(14).mean()
+        rsi   = float(100 - (100 / (1 + gain.iloc[-1] / loss.iloc[-1])))
         risk, reasons = 0, []
         if rsi > 72:  risk += 2; reasons.append(f'RSI sobrecomprado ({round(rsi,1)})')
         elif rsi > 68:risk += 1; reasons.append(f'RSI alto ({round(rsi,1)})')
         if rsi < 28:  risk += 2; reasons.append(f'RSI sobrevendido ({round(rsi,1)})')
-        if len(close) < 2:
-            return risk >= 3, ' + '.join(reasons) if reasons else 'Sin riesgo detectado', round(rsi, 1)
         lc = float((close.iloc[-1] - close.iloc[-2]) / close.iloc[-2] * 100)
         if lc > 4:    risk += 2; reasons.append(f'Subida muy alta (+{round(lc,1)}%)')
         elif lc < -4: risk += 1; reasons.append(f'Caída muy alta ({round(lc,1)}%)')
@@ -958,8 +953,6 @@ def get_volume_analysis(ticker):
     try:
         hist    = yf.Ticker(ticker).history(period='30d', interval='1d')
         if len(hist) < 10:
-            return empty
-        if len(hist) < 2:
             return empty
         avg_vol = float(hist['Volume'][:-1].mean())
         last_vol= float(hist['Volume'].iloc[-1])
@@ -1079,16 +1072,11 @@ def get_technical_score(ticker):
         if hist.empty:
             return 0
         close = hist['Close']
-        ma20     = close.rolling(20).mean().iloc[-1]
-        cur      = close.iloc[-1]
-        gain     = close.diff().clip(lower=0).rolling(14).mean()
-        loss     = (-close.diff().clip(upper=0)).rolling(14).mean()
-        gain_val = gain.iloc[-1]
-        loss_val = loss.iloc[-1]
-        if pd.isna(loss_val) or pd.isna(gain_val) or loss_val == 0:
-            rsi = 50.0
-        else:
-            rsi = float(100 - (100 / (1 + gain_val / loss_val)))
+        ma20  = close.rolling(20).mean().iloc[-1]
+        cur   = close.iloc[-1]
+        gain  = close.diff().clip(lower=0).rolling(14).mean()
+        loss  = (-close.diff().clip(upper=0)).rolling(14).mean()
+        rsi   = float(100 - (100 / (1 + gain.iloc[-1] / loss.iloc[-1])))
         score = 0
         if cur > ma20: score += 30
         if rsi > 50:   score += 20
@@ -1334,11 +1322,10 @@ def get_ftmo_signal(probability, raw_direction, futures_warning,
             else:
                 contra.append(f'🎯 OI alcista ({oi_ratio:.1f}x CALLs) — contradice dirección bajista')
         elif oi_ratio <= 0.67:
-            inv_oi = (1 / oi_ratio) if oi_ratio != 0 else 0
             if raw_direction == 'BAJISTA':
-                favor.append(f'🎯 OI bajista — {inv_oi:.1f}x más PUTs que CALLs abiertos{f" · Max Pain ${max_pain:.0f}" if max_pain else ""}')
+                favor.append(f'🎯 OI bajista — {1/oi_ratio:.1f}x más PUTs que CALLs abiertos{f" · Max Pain ${max_pain:.0f}" if max_pain else ""}')
             else:
-                contra.append(f'🎯 OI bajista ({inv_oi:.1f}x PUTs) — contradice dirección alcista')
+                contra.append(f'🎯 OI bajista ({1/oi_ratio:.1f}x PUTs) — contradice dirección alcista')
 
         # Congresistas
         if cong_buys > 0:
@@ -1457,6 +1444,15 @@ def get_uw_options_flow(ticker):
             underlying = float(t.get('underlying_price') or 0)
             alert_rule = (t.get('alert_rule') or '').upper()
             expiry     = t.get('expiry') or ''
+            # Filtrar opciones que expiran en más de 30 días — no relevantes para gap mañana
+            if expiry:
+                try:
+                    exp_parts = expiry[:10].split('-')
+                    if len(exp_parts) == 3:
+                        exp_dt = datetime(int(exp_parts[0]), int(exp_parts[1]), int(exp_parts[2]))
+                        days_to_exp = (exp_dt - datetime.utcnow()).days
+                        if days_to_exp > 30: continue
+                except Exception: pass
             if total_prem < 30000 or strike == 0 or underlying == 0: continue
             total_flow += total_prem
             if strike > underlying * 1.005:   is_call = True
@@ -1597,9 +1593,9 @@ def get_uw_open_interest(ticker):
                         prem      = float(t.get('total_premium') or t.get('premium') or 0)
                         if strike==0 or und==0 or prem<10000: continue
                         if und>0: underlying = und
+                        is_call = strike >= und*0.995
                         if strike > und*1.005:   is_call=True
                         elif strike < und*0.995: is_call=False
-                        else:                    is_call=True
                         if is_call: call_count+=1; call_prem+=prem
                         else:       put_count+=1;  put_prem+=prem
                         strike_volumes[strike] = strike_volumes.get(strike,0) + prem
@@ -1614,17 +1610,15 @@ def get_uw_open_interest(ticker):
                         score+=1.2
                         signals.append({'signal':f'🎯 Flujo alcista — {oi_ratio:.1f}x más CALLs que PUTs','detail':f'{call_count} trades CALL vs {put_count} PUT · ${call_prem/1000:.0f}K vs ${put_prem/1000:.0f}K','points':1.2,'bullish':True})
                     elif oi_ratio<=0.67:
-                        inv_oi = (1 / oi_ratio) if oi_ratio != 0 else 0
                         score-=1.2
-                        signals.append({'signal':f'🎯 Flujo bajista — {inv_oi:.1f}x más PUTs que CALLs','detail':f'{put_count} trades PUT vs {call_count} CALL · ${put_prem/1000:.0f}K vs ${call_prem/1000:.0f}K','points':-1.2,'bullish':False})
+                        signals.append({'signal':f'🎯 Flujo bajista — {1/oi_ratio:.1f}x más PUTs que CALLs','detail':f'{put_count} trades PUT vs {call_count} CALL · ${put_prem/1000:.0f}K vs ${call_prem/1000:.0f}K','points':-1.2,'bullish':False})
                     if max_pain>0 and underlying>0:
                         diff=(max_pain-underlying)/underlying*100
                         if abs(diff)>=0.3:
                             pts=0.6 if diff>0 else -0.6; score+=pts
                             signals.append({'signal':f'🧲 Concentración strike ${max_pain:.0f} — presión {"alcista" if diff>0 else "bajista"}','detail':f'Precio actual ${underlying:.2f} · strike concentrado {diff:+.1f}%','points':pts,'bullish':pts>0})
-                    inv_oi = (1 / oi_ratio) if oi_ratio != 0 else 0
                     if oi_ratio>=1.5:   summary=f'🎯 Ratio alcista ({oi_ratio:.1f}x calls) · strike concentrado ${max_pain:.0f}'
-                    elif oi_ratio<=0.67: summary=f'🎯 Ratio bajista ({inv_oi:.1f}x puts) · strike concentrado ${max_pain:.0f}'
+                    elif oi_ratio<=0.67: summary=f'🎯 Ratio bajista ({1/oi_ratio:.1f}x puts) · strike concentrado ${max_pain:.0f}'
                     else:                summary=f'🎯 Ratio neutro ({oi_ratio:.1f}) · strike concentrado ${max_pain:.0f}'
                     result = {'oi_score':round(score,1),'oi_signals':signals,'oi_summary':summary,
                               'max_pain':max_pain,'call_oi':call_count,'put_oi':put_count,
@@ -2228,4 +2222,4 @@ def calc_gaps():
 
 
 if __name__ == '__main__':
-    app.run(debug=False, port=5000)
+    app.run(debug=True, port=5000)
