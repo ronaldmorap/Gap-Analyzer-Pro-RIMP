@@ -1343,12 +1343,12 @@ def get_ftmo_signal(probability, raw_direction, futures_warning,
         # Congresistas
         if cong_buys > 0:
             if raw_direction == 'ALCISTA':
-                favor.append(f'🏛️ {cong_buys} compra{"s" if cong_buys>1 else ""} de congresistas en los últimos 90 días')
+                favor.append(f'🏛️ {cong_buys} compra{"s" if cong_buys>1 else ""} de congresistas en los últimos 3 días')
             else:
                 contra.append(f'🏛️ {cong_buys} compra{"s" if cong_buys>1 else ""} de congresistas — contradice dirección bajista')
         if cong_sells > 0:
             if raw_direction == 'BAJISTA':
-                favor.append(f'🏛️ {cong_sells} venta{"s" if cong_sells>1 else ""} de congresistas en los últimos 90 días')
+                favor.append(f'🏛️ {cong_sells} venta{"s" if cong_sells>1 else ""} de congresistas en los últimos 3 días')
             else:
                 contra.append(f'🏛️ {cong_sells} venta{"s" if cong_sells>1 else ""} de congresistas — contradice dirección alcista')
 
@@ -1446,8 +1446,12 @@ def get_uw_options_flow(ticker):
     trades = data if isinstance(data, list) else data.get('data', [])
     if not trades: _cache_set(cache_key, empty); return empty
     score=0; signals=[]; total_flow=0; call_prem=0; put_prem=0
+    today_str = datetime.utcnow().strftime('%Y-%m-%d')
     for t in trades[:40]:
         try:
+            # Filtrar solo datos de hoy
+            trade_date = (t.get('date') or t.get('created_at') or t.get('timestamp') or '')[:10]
+            if trade_date and trade_date < today_str: continue
             total_prem = float(t.get('total_premium') or t.get('premium') or 0)
             strike     = float(t.get('strike') or 0)
             underlying = float(t.get('underlying_price') or 0)
@@ -1488,8 +1492,12 @@ def get_uw_darkpool(ticker):
     prints = data if isinstance(data, list) else data.get('data', [])
     if not prints: _cache_set(cache_key, empty); return empty
     score=0; signals=[]; total_notional=0; buy_vol=0; sell_vol=0; significant=0
+    today_str = datetime.utcnow().strftime('%Y-%m-%d')
     for p in prints[:50]:
         try:
+            # Filtrar solo prints de hoy
+            print_date = (p.get('date') or p.get('executed_at') or p.get('timestamp') or '')[:10]
+            if print_date and print_date < today_str: continue
             price=float(p.get('price') or 0); size=int(p.get('size') or 0)
             nbbo_ask=float(p.get('nbbo_ask') or 0); nbbo_bid=float(p.get('nbbo_bid') or 0)
             if p.get('canceled') or price==0 or size==0: continue
@@ -1646,22 +1654,17 @@ def get_uw_congress(ticker):
                 if len(parts)==3:
                     try: dt_f=datetime(int(parts[0]),int(parts[1]),int(parts[2])); days_ago=(datetime.utcnow()-dt_f).days
                     except Exception: pass
-            if days_ago>90: continue
-            rw = 1.0 if days_ago<=7 else 0.7 if days_ago<=30 else 0.5 if days_ago<=60 else 0.3
+            if days_ago > 3: continue   # Solo últimos 3 días — frescos y relevantes
+            rw = 1.0  # Peso completo — son datos muy recientes
             if 'buy' in txn_type or 'purchase' in txn_type:
                 pts=1.5*rw; buys+=1; emoji='🏛️🟢'; action='COMPRA'
             elif 'sell' in txn_type or 'sale' in txn_type or 'exchange' in txn_type:
                 pts=-1.0*rw; sells+=1; emoji='🏛️🔴'; action='VENTA'
             else: continue
             score+=pts
-            # Color por antigüedad
-            if days_ago <= 7:    age_icon = '🟢'
-            elif days_ago <= 30: age_icon = '🟡'
-            else:                age_icon = '🔘'
-            signals.append({'signal':f'{emoji} Congresista {action} {age_icon}','detail':f'{politician} · {amounts} · hace {days_ago}d (peso {rw:.1f}x)','points':round(pts,1),'bullish':pts>0})
+            signals.append({'signal':f'{emoji} Congresista {action} 🟢','detail':f'{politician} · {amounts} · hace {days_ago}d (fresco)','points':round(pts,1),'bullish':pts>0})
         except Exception: continue
-    if buys+sells>0: summary=f'🏛️ {buys} compras / {sells} ventas congresistas (90d)'
-    elif signals:    summary=f'🏛️ {len(signals)} operaciones detectadas (90d)'
+    if buys+sells>0: summary=f'🏛️ {buys} compras / {sells} ventas congresistas (últimos 3d)'
     else:            summary=''
     result={'congress_score':round(score,1),'congress_signals':signals[:5],'congress_summary':summary,'congress_buys':buys,'congress_sells':sells}
     _cache_set(cache_key, result); return result
