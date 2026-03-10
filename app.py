@@ -5,6 +5,7 @@ from textblob import TextBlob
 import requests
 import os
 import calendar
+import traceback
 from datetime import datetime, timedelta
 import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -304,7 +305,6 @@ def get_sec_insider_activity(ticker):
         forms     = recent.get('form', [])
         dates     = recent.get('filingDate', [])
         accessions= recent.get('accessionNumber', [])
-        reporters = recent.get('reportingOwner', []) if 'reportingOwner' in recent else []
 
         buys = sells = 0
         signals = []
@@ -829,7 +829,6 @@ def get_premarket_data(ticker):
             try:
                 hist = tk.history(period='1d', interval='1m', prepost=True)
                 if not hist.empty:
-                    now_utc = datetime.utcnow()
                     # Filtrar solo datos pre-market (antes de 13:30 UTC = 15:30h ES)
                     pre = hist[hist.index.hour < 14]
                     if not pre.empty:
@@ -958,8 +957,6 @@ def get_volume_analysis(ticker):
     try:
         hist    = yf.Ticker(ticker).history(period='30d', interval='1d')
         if len(hist) < 10:
-            return empty
-        if len(hist) < 2:
             return empty
         avg_vol = float(hist['Volume'][:-1].mean())
         last_vol= float(hist['Volume'].iloc[-1])
@@ -1279,10 +1276,7 @@ def get_ftmo_signal(probability, raw_direction, futures_warning,
         max_pain   = uw_data.get('max_pain', 0)
         cong_buys  = uw_data.get('congress_buys', 0)
         cong_sells = uw_data.get('congress_sells', 0)
-        flow_sum   = uw_data.get('flow_summary', '')
         total_k    = uw_data.get('total_flow_k', 0)
-
-        def _uw_is_bullish(val): return val > 0 if raw_direction == 'ALCISTA' else val < 0
 
         # Premium CALLs vs PUTs
         if call_k > 0 or put_k > 0:
@@ -1784,7 +1778,7 @@ def calculate_gap_probability(ticker):
         tech_score                           = results.get('tech') or 0
         earnings                             = results.get('earn') or {'has_earnings': False, 'days_to_earnings': 999, 'status': 'unknown'}
         whale_score, whale_signals           = results.get('whale') or (0, [])
-        drift, drift_trend, recent_drift, is_monday = results.get('drift') or (0, 'neutral', 0, False)
+        drift, drift_trend, _, is_monday = results.get('drift') or (0, 'neutral', 0, False)
         gap_room                             = results.get('room') or {'room_up': 5, 'room_down': 5, 'near_resistance': False}
         fut_score, fut_signal, fut_change, idx_name = results.get('futures') or (0, 'Sin datos', 0, 'Índice')
 
@@ -1998,7 +1992,6 @@ def debug_analyze(ticker):
             r = fn(*args)
             results[name] = {'ok': True, 'keys': list(r.keys()) if r else [], 'sample': str(r)[:200]}
         except Exception as e:
-            import traceback
             results[name] = {'ok': False, 'error': str(e), 'trace': traceback.format_exc()[-500:]}
     
     test_fn('1_uw_enabled', lambda: UW_ENABLED)
@@ -2011,10 +2004,9 @@ def debug_analyze(ticker):
     
     # Also test raw API call
     try:
-        import requests as req
-        r = req.get(f"{UW_BASE}/api/market/market-tide",
-                   headers={"Authorization": f"Bearer {UW_API_KEY}", "Accept": "application/json"},
-                   timeout=10)
+        r = requests.get(f"{UW_BASE}/api/market/market-tide",
+                         headers={"Authorization": f"Bearer {UW_API_KEY}", "Accept": "application/json"},
+                         timeout=10)
         results['8_raw_api'] = {'status': r.status_code, 'body': r.text[:300]}
     except Exception as e:
         results['8_raw_api'] = {'error': str(e)}
