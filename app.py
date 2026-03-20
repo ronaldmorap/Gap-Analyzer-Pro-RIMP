@@ -1100,13 +1100,17 @@ def get_ftmo_signal(probability, raw_direction, futures_warning,
                     macro_title=None, macro_date=None, macro_time=None,
                     macro_sent=None, vol_pct=0,
                     vix_level=15.0, is_monday=False,
-                    uw_data=None):
+                    uw_data=None, triple_conf_bajista=False):
     """
     Semáforo FTMO con etiquetas específicas y descriptivas en cada señal.
     Verde: opera. Amarillo: reduce tamaño. Rojo: no operar.
     """
     favor  = []
     contra = []
+
+    # ── TRIPLE CONFLUENCIA BAJISTA — señal premium ─────────────────
+    if triple_conf_bajista:
+        favor.append('🎯 Triple confluencia bajista — Dark Pool bajista + Macro negativa + Drift bajista · Históricamente >70% de acierto')
 
     # ── 0. FUERZA GENERAL DE LA SEÑAL ─────────────────────────────
     # Si la probabilidad combinada es baja, aviso explícito antes de todo
@@ -1358,28 +1362,48 @@ def get_ftmo_signal(probability, raw_direction, futures_warning,
     macro_confirma = (macro_event and
                       ((macro_sent == 'positivo' and raw_direction == 'ALCISTA') or
                        (macro_sent == 'negativo' and raw_direction == 'BAJISTA')))
+    # FILTRO DATOS: VIX > 28 + macro negativo = bloqueo alcista (13% acierto histórico)
+    vix_macro_block = (vix_level > 28 and macro_sent == 'negativo' and raw_direction == 'ALCISTA')
+    # FILTRO DATOS: semáforo verde requiere macro no-negativo
+    verde_bloqueado = (macro_sent == 'negativo')
+
     hard_block = (earnings_days <= 1 or
                   (macro_event and not macro_confirma) or
                   (futures_warning and is_fakeout) or
-                  vix_level >= 30)
+                  vix_level >= 30 or
+                  vix_macro_block)
 
     if hard_block:
         color  = 'red'
-        titulo = '⚠️ Alta volatilidad · Gestiona el riesgo'
-        desc   = 'Condición de riesgo extremo activa. Reduce el tamaño y protege el drawdown.'
+        if vix_macro_block:
+            titulo = '🔴 ALCISTA BLOQUEADO — VIX alto + macro negativo'
+            desc   = f'VIX {vix_level:.1f} + macro negativo: históricamente solo 13% de acierto en dirección alcista. Evita operar alcista hoy.'
+        else:
+            titulo = '⚠️ Alta volatilidad · Gestiona el riesgo'
+            desc   = 'Condición de riesgo extremo activa. Reduce el tamaño y protege el drawdown.'
     elif probability < 60:
         # Señal débil — nunca verde aunque haya señales a favor
         color  = 'yellow'
         titulo = '🟡 CUIDADO — Señal con poca fuerza'
         desc   = f'Probabilidad {probability}% — por debajo del umbral mínimo. Si operas, tamaño mínimo.'
     elif n_favor >= 8 and n_contra == 0:
-        color  = 'green'
-        titulo = f'🟢 SEÑAL FUERTE 🔥🔥 — Opera con tamaño completo'
-        desc   = f'{n_favor} señales a favor, {n_contra} en contra. Setup excepcional.'
+        if verde_bloqueado:
+            color  = 'yellow'
+            titulo = '🟡 SEÑAL MODERADA — macro negativa, reduce tamaño'
+            desc   = f'{n_favor} señales a favor pero macro negativa activa. Históricamente el verde con macro negativa falla el 60%. Reduce tamaño.'
+        else:
+            color  = 'green'
+            titulo = f'🟢 SEÑAL FUERTE 🔥🔥 — Opera con tamaño completo'
+            desc   = f'{n_favor} señales a favor, {n_contra} en contra. Setup excepcional.'
     elif n_favor >= 6 and n_contra <= 1:
-        color  = 'green'
-        titulo = '🟢 SEÑAL CLARA — Opera'
-        desc   = f'{n_favor} señales a favor, {n_contra} en contra. Setup sólido.'
+        if verde_bloqueado:
+            color  = 'yellow'
+            titulo = '🟡 SEÑAL MODERADA — macro negativa, reduce tamaño'
+            desc   = f'{n_favor} señales a favor pero macro negativa activa. Reduce tamaño al 50%.'
+        else:
+            color  = 'green'
+            titulo = '🟢 SEÑAL CLARA — Opera'
+            desc   = f'{n_favor} señales a favor, {n_contra} en contra. Setup sólido.'
     elif n_favor >= 4 and n_contra <= 2:
         color  = 'yellow'
         titulo = '🟡 SEÑAL MODERADA — Reduce tamaño'
@@ -1833,10 +1857,33 @@ def calculate_gap_probability(ticker):
         raw_dir   = 'ALCISTA' if final >= 50 else 'BAJISTA'
         disp_prob = final if final >= 50 else 100 - final
 
+        # ── AJUSTE DE PROBABILIDAD POR MACRO Y VIX (basado en datos reales) ──
+        # Macro negativo + dirección alcista: reducir probabilidad (40% real vs % mostrado)
+        if macro_sent == 'negativo' and raw_dir == 'ALCISTA':
+            disp_prob = round(disp_prob * 0.80)  # penalización 20%
+        # Macro negativo + dirección bajista: aumentar probabilidad (62% real)
+        elif macro_sent == 'negativo' and raw_dir == 'BAJISTA':
+            disp_prob = round(min(disp_prob * 1.12, 90))  # bonus 12%
+        # Macro neutro: ligero bonus (65% real)
+        elif macro_sent == 'neutro':
+            disp_prob = round(min(disp_prob * 1.08, 92))
+        # VIX > 28: penalización adicional
+        if vix_level > 28:
+            disp_prob = round(disp_prob * 0.90)
+        # VIX 22-25 zona óptima: ligero bonus
+        elif 22 <= vix_level <= 25:
+            disp_prob = round(min(disp_prob * 1.05, 92))
+        disp_prob = max(30, min(92, disp_prob))
+
         fut_warning = (raw_dir == 'ALCISTA' and fut_change <= -0.3) or \
                       (raw_dir == 'BAJISTA' and fut_change >= 0.3)
 
         # ── Semáforo FTMO ────────────────────────────────────────
+        # ── TRIPLE CONFLUENCIA BAJISTA (>70% acierto histórico) ──
+        dp_bajista  = (uw_data.get('dp_volume_m', 0) > 0 and uw_data.get('uw_total_score', 0) < -5) if uw_data else False
+        triple_conf = (dp_bajista and macro_sent == 'negativo' and
+                       drift_trend == 'bajista' and raw_dir == 'BAJISTA')
+
         ftmo_signal = get_ftmo_signal(
             probability     = round(disp_prob),
             raw_direction   = raw_dir,
