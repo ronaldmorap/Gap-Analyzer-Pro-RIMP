@@ -159,7 +159,7 @@
         .leader-card:hover{transform:translateY(-2px);box-shadow:var(--sh)}
         .leader-card.lc-green{border-color:var(--green-b);background:var(--green-bg)}
         .leader-card.lc-yellow{border-color:var(--amber-b);background:var(--amber-bg)}
-        .leader-card.lc-red{border-color:var(--red-b)}
+        .leader-card.lc-red{border-color:var(--red-b);background:var(--red-bg)}
         .lc-ticker{font-size:13px;font-weight:800}
         .lc-company{font-size:9px;color:var(--muted);margin-top:1px}
         .lc-prob{font-size:26px;font-weight:800;margin:8px 0 2px;letter-spacing:-1px}
@@ -1180,10 +1180,10 @@ async function renderTrades(){
     sorted.forEach(t=>{ try {
         const el=document.createElement('div');
         el.className=`trade-row ${t.result}`;
-        // Fondo semáforo: verde claro, amarillo claro, rojo claro
-        if(t.semaforo_color==='red')    el.style.background='var(--red-bg)';
-        else if(t.semaforo_color==='amber') el.style.background='var(--amber-bg)';
-        else if(t.semaforo_color==='green') el.style.background='var(--green-bg)';
+        // Fondo por resultado: win=verde, loss=rojo, pending=amarillo
+        if(t.result==='win')            el.style.background='var(--green-bg)';
+        else if(t.result==='loss')      el.style.background='var(--red-bg)';
+        else if(t.result==='pending')   el.style.background='var(--amber-bg)';
         const pc=t.prediction==='ALCISTA'?'c-bullish':'c-bearish';
         const pi=t.prediction==='ALCISTA'?'↑':'↓';
         const sigTag=t.signal_level==='fuerte'?'🔥🔥':t.signal_level==='moderada'?'🟡':'🟢';
