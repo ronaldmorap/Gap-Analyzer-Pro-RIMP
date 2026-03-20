@@ -856,8 +856,9 @@ async function loadDashboard(){
         data.forEach(s=>{
             const f=s.ftmo_signal||{};
             const card=document.createElement('div');
-            // Color de tarjeta solo por semáforo FTMO, nunca rojo por noticias macro
-            const cardColor = f.color === 'green' ? 'lc-green' : f.color === 'yellow' ? 'lc-yellow' : 'lc-neutral';
+            // Color de tarjeta: verde, amarillo, rojo. Rojo también si prob < 60
+            const isRed = f.color === 'red' || (s.probability < 60 && f.color !== 'green');
+            const cardColor = f.color === 'green' ? 'lc-green' : f.color === 'yellow' ? 'lc-yellow' : 'lc-red';
             card.className=`leader-card ${cardColor}`;
             card.onclick=()=>{
                 // Usar datos del dashboard directamente — sin recalcular
@@ -871,7 +872,7 @@ async function loadDashboard(){
             };
             const isStrongGreen = f.color==='green' && f.titulo && f.titulo.includes('🔥🔥');
             const sigCls = isStrongGreen ? 'lcs-green-strong' : `lcs-${f.color||'red'}`;
-            const sigTxt=f.color==='green'?'OPERAR':f.color==='yellow'?'CUIDADO':'⚠️ CUIDADO';
+            const sigTxt=f.color==='green'?'✅ OPERAR':f.color==='yellow'?'⚠️ CUIDADO':'🔴 NO OPERAR';
             const dir=s.raw_direction||'NEUTRAL';
             const dirCls=dir==='ALCISTA'?'c-bullish':dir==='BAJISTA'?'c-bearish':'c-neutral';
             const earn=s.earnings;
