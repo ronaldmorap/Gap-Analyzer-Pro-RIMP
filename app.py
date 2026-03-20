@@ -108,15 +108,16 @@ def _cache_set(key, val):
         _cache[key] = {'val': val, 'ts': time.time()}
 
 # ── CONSTANTES ────────────────────────────────────────────────────
-MARKET_LEADERS = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA', 'META', 'TSLA', 'NFLX', 'RACE']
+MARKET_LEADERS = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA', 'META', 'TSLA', 'NFLX', 'RACE', 'WMT']
 
 COMPANY_NAMES = {
     'AAPL': 'Apple', 'MSFT': 'Microsoft', 'GOOGL': 'Google',
     'AMZN': 'Amazon', 'NVDA': 'Nvidia',   'META': 'Meta',
-    'TSLA': 'Tesla',  'NFLX': 'Netflix',  'RACE': 'Ferrari'
+    'TSLA': 'Tesla',  'NFLX': 'Netflix',  'RACE': 'Ferrari',
+    'WMT':  'Walmart'
 }
 
-NYSE_STOCKS   = ['RACE']          # SP500
+NYSE_STOCKS   = ['RACE', 'WMT']          # SP500
 NASDAQ_STOCKS = ['AAPL','MSFT','GOOGL','AMZN','NVDA','META','TSLA','NFLX']  # Nasdaq
 
 SP500_KEYWORDS  = ['S&P', 'SP500', 'S&P500', 'SPX', 'SP 500']
