@@ -389,28 +389,28 @@
         </div>
 
         <!-- Stats avanzadas fila 1 -->
-        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:10px">
+        <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-bottom:10px;overflow:hidden">
             <!-- Por ticker -->
             <div class="sig-box" style="padding:14px">
                 <h3 style="font-size:11px;margin-bottom:10px">📊 ACIERTO POR TICKER</h3>
-                <div id="stByTicker" style="font-size:12px;line-height:1.8;color:var(--text2)">—</div>
+                <div id="stByTicker" style="font-size:12px;line-height:1.8;color:var(--text2);min-width:0;overflow:hidden">—</div>
             </div>
             <!-- Por día -->
             <div class="sig-box" style="padding:14px">
                 <h3 style="font-size:11px;margin-bottom:10px">📅 ACIERTO POR DÍA</h3>
-                <div id="stByDay" style="font-size:12px;line-height:1.8;color:var(--text2)">—</div>
+                <div id="stByDay" style="font-size:12px;line-height:1.8;color:var(--text2);min-width:0;overflow:hidden">—</div>
             </div>
             <!-- Por señal -->
             <div class="sig-box" style="padding:14px">
                 <h3 style="font-size:11px;margin-bottom:10px">🔥 ACIERTO POR SEÑAL</h3>
-                <div id="stBySignal" style="font-size:12px;line-height:1.8;color:var(--text2)">—</div>
+                <div id="stBySignal" style="font-size:12px;line-height:1.8;color:var(--text2);min-width:0;overflow:hidden">—</div>
             </div>
         </div>
         <!-- Stats avanzadas fila 2: VIX y Gap real -->
-        <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:16px">
+        <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-bottom:16px;overflow:hidden">
             <div class="sig-box" style="padding:14px;border-left:3px solid var(--amber)">
                 <h3 style="font-size:11px;margin-bottom:10px">📉 ACIERTO POR RANGO VIX</h3>
-                <div id="stByVix" style="font-size:12px;line-height:1.9;color:var(--text2)">—</div>
+                <div id="stByVix" style="font-size:12px;line-height:1.9;color:var(--text2);min-width:0;overflow:hidden">—</div>
                 <div style="font-size:10px;color:var(--muted);margin-top:6px">Tranquilo &lt;15 · Normal 15-25 · Nervioso 25-30 · Pánico &gt;30</div>
             </div>
             <div class="sig-box" style="padding:14px;border-left:3px solid var(--blue)">
@@ -1109,7 +1109,7 @@ async function renderTrades(){
     });
     const tkHtml=Object.entries(byTicker)
         .sort((a,b)=>b[1].c-a[1].c)
-        .map(([tk,v])=>`<div style="display:flex;justify-content:space-between"><b>${tk}</b>${accStr(v.w,v.c)}</div>`).join('');
+        .map(([tk,v])=>`<div style="display:flex;justify-content:space-between;gap:4px;min-width:0"><b style="flex-shrink:0">${tk}</b>${accStr(v.w,v.c)}</div>`).join('');
     document.getElementById('stByTicker').innerHTML=tkHtml||'<span style="color:var(--muted)">Sin datos</span>';
 
     // Acierto por día de la semana
@@ -1122,7 +1122,7 @@ async function renderTrades(){
     });
     const dayOrder=['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'];
     const dayHtml=dayOrder.filter(d=>byDay[d])
-        .map(d=>`<div style="display:flex;justify-content:space-between"><b>${d}</b>${accStr(byDay[d].w,byDay[d].c)}</div>`).join('');
+        .map(d=>`<div style="display:flex;justify-content:space-between;gap:4px;min-width:0"><b style="flex-shrink:0">${d}</b>${accStr(byDay[d].w,byDay[d].c)}</div>`).join('');
     document.getElementById('stByDay').innerHTML=dayHtml||'<span style="color:var(--muted)">Sin datos</span>';
 
     // Acierto por nivel de señal
@@ -1133,7 +1133,7 @@ async function renderTrades(){
     });
     const sigLabels={fuerte:'🔥🔥 Fuerte',clara:'🟢 Clara',moderada:'🟡 Moderada'};
     const sigHtml=Object.entries(bySignal)
-        .map(([k,v])=>`<div style="display:flex;justify-content:space-between"><b>${sigLabels[k]}</b>${accStr(v.w,v.c)}</div>`).join('');
+        .map(([k,v])=>`<div style="display:flex;justify-content:space-between;gap:4px;min-width:0"><b style="flex-shrink:0;white-space:nowrap">${sigLabels[k]}</b>${accStr(v.w,v.c)}</div>`).join('');
     document.getElementById('stBySignal').innerHTML=sigHtml;
 
     // ── Acierto por rango VIX ─────────────────────────────────────
@@ -1149,7 +1149,7 @@ async function renderTrades(){
         if(t.result==='win') byVix[rng].w++;
     });
     const vixHtml=Object.entries(byVix).filter(([,v])=>v.c>0)
-        .map(([,v])=>`<div style="display:flex;justify-content:space-between"><b>${v.label}</b>${accStr(v.w,v.c)}</div>`).join('');
+        .map(([,v])=>`<div style="display:flex;justify-content:space-between;gap:4px;min-width:0"><b style="flex-shrink:0;white-space:nowrap">${v.label}</b>${accStr(v.w,v.c)}</div>`).join('');
     document.getElementById('stByVix').innerHTML=vixHtml||'<span style="color:var(--muted)">Sin datos VIX aún</span>';
 
     // ── Gap real promedio ─────────────────────────────────────────
